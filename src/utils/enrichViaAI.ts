@@ -1,5 +1,20 @@
 import OpenAI from 'openai';
 
+export type Enrichment = { company: string | null; industry: string | null };
+
+// Free/consumer mail providers. Never worth an AI call: the answer is always "personal".
+const PERSONAL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.uk', 'ymail.com',
+  'hotmail.com', 'hotmail.co.uk', 'outlook.com', 'live.com', 'msn.com',
+  'icloud.com', 'me.com', 'mac.com', 'aol.com', 'protonmail.com', 'proton.me',
+  'pm.me', 'hey.com', 'fastmail.com', 'zoho.com', 'gmx.com', 'gmx.de',
+  'mail.com', 'yandex.com', 'yandex.ru', 'qq.com', '163.com', '126.com',
+]);
+
+export function isPersonalDomain(domain: string): boolean {
+  return PERSONAL_DOMAINS.has(domain.toLowerCase());
+}
+
 function buildPrompt(email: string): string {
   return `Analyze this email address and determine if it's a personal email or a business email.
 
@@ -25,68 +40,73 @@ Rules:
 
 function normalize(value?: string | null): string | null {
   if (!value) return null;
-  
+
   const cleaned = value.trim();
-  
+  const lower = cleaned.toLowerCase();
+
   // Check for empty or placeholder values
   if (
     cleaned === '' ||
-    cleaned.toLowerCase().includes('leave blank') ||
-    cleaned.toLowerCase().includes('or leave blank') ||
+    lower.includes('leave blank') ||
     cleaned.includes('[') ||
     cleaned.includes(']') ||
-    cleaned.toLowerCase().includes('personal') ||
-    cleaned.toLowerCase().includes('unknown') ||
-    cleaned.toLowerCase().includes('n/a') ||
-    cleaned.toLowerCase().includes('none') ||
-    cleaned.toLowerCase().includes('industry') // Additional check for "industry" in company field
+    lower.includes('personal') ||
+    lower.includes('unknown') ||
+    lower.includes('n/a') ||
+    lower === 'none' ||
+    lower.includes('industry') // Additional check for "industry" in company field
   ) {
     return null;
   }
-  
+
   return cleaned;
 }
 
-export async function enrichViaAI(email: string): Promise<{ company: string | null; industry: string | null }> {
+let client: OpenAI | null = null;
+function getClient(): OpenAI {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY is not set');
   }
+  if (!client) {
+    client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return client;
+}
 
-  const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-  });
-
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4-1106-preview",
-      messages: [
-        {
-          role: "system",
-          content: "You are a helpful assistant that analyzes email addresses to determine company and industry information. You must respond in the exact format specified, with no additional text or explanations."
-        },
-        {
-          role: "user",
-          content: buildPrompt(email)
-        }
-      ],
-      temperature: 0,
-      max_tokens: 100
-    });
-
-    const result = completion.choices[0]?.message?.content || '';
-    console.log('AI Response:', result);
-
-    // Extract company and industry using regex, ensuring proper line breaks
-    const companyMatch = result.match(/^Company:\s*(.*?)(?:\n|$)/im);
-    const industryMatch = result.match(/^Industry:\s*(.*?)(?:\n|$)/im);
-
-    // Normalize and validate the extracted values
-    return {
-      company: normalize(companyMatch?.[1]),
-      industry: normalize(industryMatch?.[1])
-    };
-  } catch (error) {
-    console.error('Error enriching contact:', error);
+/**
+ * Ask the model for company/industry for an email address.
+ *
+ * Throws on API failure so callers can retry. Returns {null, null} for
+ * personal addresses or when the model declines to answer.
+ */
+export async function enrichViaAI(email: string): Promise<Enrichment> {
+  const domain = email.split('@')[1] ?? '';
+  if (!domain || isPersonalDomain(domain)) {
     return { company: null, industry: null };
   }
-} 
+
+  const completion = await getClient().chat.completions.create({
+    model: process.env.OPENAI_ENRICH_MODEL || 'gpt-4o-mini',
+    messages: [
+      {
+        role: 'system',
+        content:
+          'You are a helpful assistant that analyzes email addresses to determine company and industry information. You must respond in the exact format specified, with no additional text or explanations.',
+      },
+      { role: 'user', content: buildPrompt(email) },
+    ],
+    temperature: 0,
+    max_tokens: 100,
+  });
+
+  const result = completion.choices[0]?.message?.content || '';
+
+  // Extract company and industry using regex, ensuring proper line breaks
+  const companyMatch = result.match(/^Company:\s*(.*?)(?:\n|$)/im);
+  const industryMatch = result.match(/^Industry:\s*(.*?)(?:\n|$)/im);
+
+  return {
+    company: normalize(companyMatch?.[1]),
+    industry: normalize(industryMatch?.[1]),
+  };
+}

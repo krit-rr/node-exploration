@@ -1,147 +1,133 @@
-import { enrichViaAI } from './enrichViaAI';
 import pLimit from 'p-limit';
+import { enrichViaAI, isPersonalDomain, type Enrichment } from './enrichViaAI';
 
 type Contact = {
   id: string;
   email: string;
 };
 
-type EnrichedContact = Contact & {
+type EnrichedContact<T extends Contact> = T & {
   company: string | null;
   industry: string | null;
   enrichedBy: 'ai';
 };
 
-// Mask email for logging
-const maskEmail = (email: string) => {
-  const [name, domain] = email.split('@');
-  return `${name.charAt(0)}***@${domain}`;
-};
-
 // Known domain mappings for fallback
-const KNOWN_DOMAINS = new Map<string, { company: string; industry: string }>([
+const KNOWN_DOMAINS = new Map<string, Enrichment>([
   ['fcps.edu', { company: 'Fairfax County Public Schools', industry: 'Education' }],
   // Add more known domains as needed
 ]);
 
+/**
+ * Process-wide domain cache. A domain's company/industry is not user-specific,
+ * so it's shared across requests and users. Entries expire so a bad answer
+ * doesn't stick forever. Survives for the lifetime of the server process;
+ * on serverless platforms that means "per warm instance", which is still a
+ * large win over re-querying on every request.
+ */
+const DOMAIN_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const domainCache = new Map<string, { value: Enrichment; expiresAt: number }>();
+
+function readCache(domain: string): Enrichment | undefined {
+  const hit = domainCache.get(domain);
+  if (!hit) return undefined;
+  if (hit.expiresAt < Date.now()) {
+    domainCache.delete(domain);
+    return undefined;
+  }
+  return hit.value;
+}
+
+function writeCache(domain: string, value: Enrichment): void {
+  domainCache.set(domain, { value, expiresAt: Date.now() + DOMAIN_CACHE_TTL_MS });
+}
+
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
-// Helper function to get user-specific enrichment cache key
-const getEnrichmentCacheKey = (userEmail: string): string => {
-  if (!userEmail) {
-    throw new Error('User email is required for enrichment cache key');
-  }
-  return `enrichment-cache_${userEmail}`;
-};
+const EMPTY: Enrichment = { company: null, industry: null };
 
-export async function enrichBatchViaAI(
-  contacts: Contact[],
+async function enrichDomain(
+  domain: string,
+  sampleEmail: string,
+  { maxRetries, cacheByDomain }: { maxRetries: number; cacheByDomain: boolean }
+): Promise<Enrichment> {
+  if (!domain || isPersonalDomain(domain)) return EMPTY;
+
+  const known = KNOWN_DOMAINS.get(domain);
+  if (known) return known;
+
+  if (cacheByDomain) {
+    const cached = readCache(domain);
+    if (cached) return cached;
+  }
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const enrichment = await enrichViaAI(sampleEmail);
+      if (cacheByDomain) writeCache(domain, enrichment);
+      return enrichment;
+    } catch (err) {
+      const last = attempt === maxRetries;
+      console.error(
+        `Failed to enrich domain ${domain} (attempt ${attempt + 1}/${maxRetries + 1})${last ? ' - giving up' : ''}`,
+        err instanceof Error ? err.message : err
+      );
+      if (!last) await sleep(2 ** attempt * 300); // Exponential backoff
+    }
+  }
+
+  // Deliberately not cached: a transient failure shouldn't poison the cache.
+  return EMPTY;
+}
+
+/**
+ * Enrich a list of contacts with company/industry, one AI call per unique
+ * domain. Output preserves the input order.
+ */
+export async function enrichBatchViaAI<T extends Contact>(
+  contacts: T[],
   {
     delayMs = 200,
     maxRetries = 2,
     cacheByDomain = true,
     concurrency = 3,
-    userEmail = undefined,
   }: {
     delayMs?: number;
     maxRetries?: number;
     cacheByDomain?: boolean;
     concurrency?: number;
+    /** @deprecated No longer used; the domain cache is shared server-side. */
     userEmail?: string | null;
   } = {}
-): Promise<EnrichedContact[]> {
-  const results: EnrichedContact[] = [];
-  const domainCache = new Map<string, { company: string | null; industry: string | null }>();
+): Promise<EnrichedContact<T>[]> {
   const limit = pLimit(concurrency);
 
-  // Load persistent cache if userEmail is provided
-  if (userEmail && cacheByDomain && typeof window !== 'undefined') {
-    try {
-      const cacheKey = getEnrichmentCacheKey(userEmail);
-      const savedCache = sessionStorage.getItem(cacheKey);
-      if (savedCache) {
-        const parsedCache = JSON.parse(savedCache);
-        Object.entries(parsedCache).forEach(([domain, data]) => {
-          domainCache.set(domain, data as { company: string | null; industry: string | null });
-        });
-        console.log('Loaded enrichment cache from sessionStorage');
-      }
-    } catch (error) {
-      console.error('Error loading enrichment cache:', error);
-    }
-  }
+  const domains = new Set<string>();
+  const domainOf = (c: Contact) => c.email.split('@')[1]?.toLowerCase() ?? '';
+  contacts.forEach((c) => domains.add(domainOf(c)));
 
-  // Group contacts by domain for batch processing
-  const contactsByDomain = new Map<string, Contact[]>();
-  contacts.forEach(contact => {
-    const domain = contact.email.split('@')[1]?.toLowerCase() ?? '';
-    if (!contactsByDomain.has(domain)) {
-      contactsByDomain.set(domain, []);
-    }
-    contactsByDomain.get(domain)!.push(contact);
-  });
-
-  // Process each domain group
-  const promises = Array.from(contactsByDomain.entries()).map(([domain, domainContacts]) =>
-    limit(async () => {
-      let enrichment: { company: string | null; industry: string | null } = { company: null, industry: null };
-
-      // Check known domains first
-      if (KNOWN_DOMAINS.has(domain)) {
-        enrichment = KNOWN_DOMAINS.get(domain)!;
-        console.log(`Using cached data for domain: ${domain}`);
-      }
-      // Then check runtime cache
-      else if (cacheByDomain && domainCache.has(domain)) {
-        enrichment = domainCache.get(domain)!;
-        console.log(`Using runtime cache for domain: ${domain}`);
-      }
-      // Finally, call API
-      else {
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
-          try {
-            // Use first contact's email for domain enrichment
-            enrichment = await enrichViaAI(domainContacts[0].email);
-            if (cacheByDomain) {
-              domainCache.set(domain, enrichment);
-              // Save to persistent cache if userEmail is provided
-              if (userEmail && typeof window !== 'undefined') {
-                try {
-                  const cacheKey = getEnrichmentCacheKey(userEmail);
-                  const cacheData = Object.fromEntries(domainCache);
-                  sessionStorage.setItem(cacheKey, JSON.stringify(cacheData));
-                } catch (error) {
-                  console.error('Error saving enrichment cache:', error);
-                }
-              }
-            }
-            break;
-          } catch (err) {
-            console.error(`Failed to enrich domain ${domain} (attempt ${attempt + 1}/${maxRetries + 1})`);
-            if (attempt === maxRetries) {
-              console.error(`Failed to enrich domain ${domain} after ${maxRetries + 1} attempts`);
-              enrichment = { company: null, industry: null };
-            } else {
-              await sleep(2 ** attempt * 300); // Exponential backoff
-            }
-          }
+  const enrichments = new Map<string, Enrichment>();
+  await Promise.all(
+    Array.from(domains).map((domain) =>
+      limit(async () => {
+        const sample = contacts.find((c) => domainOf(c) === domain)!;
+        const result = await enrichDomain(domain, sample.email, { maxRetries, cacheByDomain });
+        enrichments.set(domain, result);
+        // Only pace actual API traffic; cache hits/personal domains are free.
+        if (delayMs > 0 && !isPersonalDomain(domain) && !KNOWN_DOMAINS.has(domain)) {
+          await sleep(delayMs);
         }
-      }
-
-      // Apply enrichment to all contacts in this domain
-      domainContacts.forEach(contact => {
-        results.push({
-          ...contact,
-          company: enrichment.company,
-          industry: enrichment.industry,
-          enrichedBy: 'ai',
-        });
-      });
-
-      await sleep(delayMs);
-    })
+      })
+    )
   );
 
-  await Promise.all(promises);
-  return results;
-} 
+  return contacts.map((contact) => {
+    const enrichment = enrichments.get(domainOf(contact)) ?? EMPTY;
+    return {
+      ...contact,
+      company: enrichment.company,
+      industry: enrichment.industry,
+      enrichedBy: 'ai' as const,
+    };
+  });
+}
