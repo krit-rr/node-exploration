@@ -1,5 +1,5 @@
 import { Client } from "@microsoft/microsoft-graph-client";
-import { format } from "date-fns";
+import type { ContactInteraction } from "./gmail-client";
 
 interface EmailContact {
   emailAddress: {
@@ -13,6 +13,8 @@ interface EmailMessage {
   toRecipients: EmailContact[];
   ccRecipients: EmailContact[];
   bccRecipients: EmailContact[];
+  subject?: string;
+  bodyPreview?: string;
 }
 
 export interface Contact {
@@ -21,6 +23,7 @@ export interface Contact {
   email: string;
   lastContacted: string;
   lastContactedRaw: string; // For sorting
+  interactions?: ContactInteraction[];
 }
 
 export class GraphClient {
@@ -53,7 +56,7 @@ export class GraphClient {
 
     try {
       const response = await this.client.api('/me/mailFolders/sentItems/messages')
-        .select('sentDateTime,toRecipients,ccRecipients,bccRecipients')
+        .select('sentDateTime,toRecipients,ccRecipients,bccRecipients,subject,bodyPreview')
         .top(limit)
         .orderby('sentDateTime desc')
         .get();
@@ -76,7 +79,9 @@ export class GraphClient {
   async getUniqueContactsByLatestInteraction(): Promise<Contact[]> {
     const emails = await this.getSentEmails();
     const contactMap = new Map<string, Contact>();
-    
+    // Bounded per contact so a frequent correspondent doesn't dominate the payload
+    const MAX_INTERACTIONS_PER_CONTACT = 20;
+
     // Process each email to extract recipients
     for (const email of emails) {
       const processRecipient = (recipient: EmailContact) => {
@@ -84,7 +89,7 @@ export class GraphClient {
         if (!emailAddress) return; // Skip invalid email addresses
         const name = recipient.emailAddress.name || emailAddress;
         const sentDate = new Date(email.sentDateTime);
-        
+
         // Skip if date is invalid
         if (!this.isValidDate(email.sentDateTime)) {
           console.warn(`Invalid date for email to ${emailAddress}: ${email.sentDateTime}`);
@@ -94,22 +99,34 @@ export class GraphClient {
         // If this contact doesn't exist in our map, or if this email is more recent
         // than the one we have stored, update the contact info
         if (
-          !contactMap.has(emailAddress) || 
+          !contactMap.has(emailAddress) ||
           new Date(contactMap.get(emailAddress)!.lastContactedRaw) < sentDate
         ) {
           // Convert the date to ISO format for consistent handling
           const isoDate = sentDate.toISOString();
-          
+
           contactMap.set(emailAddress, {
             id: emailAddress,
             name,
             email: emailAddress,
             lastContactedRaw: email.sentDateTime,
-            lastContacted: isoDate // Store in ISO format
+            lastContacted: isoDate, // Store in ISO format
+            interactions: contactMap.get(emailAddress)?.interactions ?? []
+          });
+        }
+
+        const contact = contactMap.get(emailAddress)!;
+        if ((contact.interactions?.length ?? 0) < MAX_INTERACTIONS_PER_CONTACT) {
+          contact.interactions!.push({
+            date: sentDate.toISOString(),
+            channel: 'email',
+            type: 'sent',
+            subject: email.subject,
+            snippet: email.bodyPreview
           });
         }
       };
-      
+
       // Process all recipient types
       [...email.toRecipients, ...email.ccRecipients, ...email.bccRecipients].forEach(processRecipient);
     }

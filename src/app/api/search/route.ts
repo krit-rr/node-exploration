@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { embedText } from '@/lib/embeddings';
+import { rateLimit } from '@/lib/rateLimit';
 
 const MAX_LIMIT = 50;
 
@@ -26,6 +27,16 @@ export async function GET(request: Request) {
       );
     }
     const owner = session.user.email.toLowerCase();
+
+    // Each search costs one embedding call; 30/min comfortably covers a
+    // debounced search box while capping abuse.
+    const limited = rateLimit(`search:${owner}`, { limit: 30, windowMs: 60_000 });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: 'Too many searches, slow down' },
+        { status: 429, headers: { 'Retry-After': String(limited.retryAfterSeconds) } }
+      );
+    }
 
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('q')?.trim();

@@ -9,6 +9,7 @@ import {
   contentHash,
 } from '@/utils/embeddingText';
 import { Contact } from '@/types';
+import { rateLimit } from '@/lib/rateLimit';
 
 const MAX_CONTACTS_PER_SYNC = 2000;
 const MAX_INTERACTIONS_PER_SYNC = 500;
@@ -31,6 +32,16 @@ export async function POST(request: Request) {
       );
     }
     const owner = session.user.email.toLowerCase();
+
+    // Embedding syncs are model-call heavy; a legitimate client needs at most
+    // one per contacts refresh.
+    const limited = rateLimit(`embed-sync:${owner}`, { limit: 6, windowMs: 60_000 });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: 'Too many sync requests, slow down' },
+        { status: 429, headers: { 'Retry-After': String(limited.retryAfterSeconds) } }
+      );
+    }
 
     let body: { contacts?: Contact[] };
     try {
