@@ -13,6 +13,16 @@ interface EmailMessage {
   toRecipients: EmailContact[];
   ccRecipients: EmailContact[];
   bccRecipients: EmailContact[];
+  subject?: string;
+  snippet?: string;
+}
+
+export interface ContactInteraction {
+  date: string;
+  channel: 'email';
+  type: 'sent';
+  subject?: string;
+  snippet?: string;
 }
 
 export interface Contact {
@@ -21,6 +31,7 @@ export interface Contact {
   email: string;
   lastContacted: string;
   lastContactedRaw: string; // For sorting
+  interactions?: ContactInteraction[];
 }
 
 export class GmailClient {
@@ -89,12 +100,12 @@ export class GmailClient {
       });
 
       const messages = await Promise.all(
-        (response.data.messages || []).map(async (message) => {
+        (response.data.messages || []).map(async (message): Promise<EmailMessage | null> => {
           const details = await gmail.users.messages.get({
             userId: 'me',
             id: message.id!,
             format: 'metadata',
-            metadataHeaders: ['From', 'To', 'Cc', 'Bcc', 'Date']
+            metadataHeaders: ['From', 'To', 'Cc', 'Bcc', 'Date', 'Subject']
           });
 
           const headers = details.data.payload?.headers || [];
@@ -115,7 +126,11 @@ export class GmailClient {
             sentDateTime: dateStr,
             toRecipients: to,
             ccRecipients: cc,
-            bccRecipients: bcc
+            bccRecipients: bcc,
+            subject: getHeader('Subject') || undefined,
+            // The snippet (first ~100 chars of the body) ships with the
+            // metadata format, so capturing it costs no extra API call.
+            snippet: details.data.snippet || undefined
           };
         })
       );
@@ -135,7 +150,9 @@ export class GmailClient {
   async getUniqueContactsByLatestInteraction(): Promise<Contact[]> {
     const emails = await this.getSentEmails();
     const contactMap = new Map<string, Contact>();
-    
+    // Bounded per contact so a frequent correspondent doesn't dominate the payload
+    const MAX_INTERACTIONS_PER_CONTACT = 20;
+
     // Process each email to extract recipients
     for (const email of emails) {
       const processRecipient = (recipient: EmailContact) => {
@@ -143,7 +160,7 @@ export class GmailClient {
         if (!emailAddress) return; // Skip invalid email addresses
         const name = recipient.emailAddress.name || emailAddress;
         const sentDate = new Date(email.sentDateTime);
-        
+
         // Skip if date is invalid
         if (!this.isValidDate(email.sentDateTime)) {
           console.warn(`Invalid date for email to ${emailAddress}: ${email.sentDateTime}`);
@@ -153,18 +170,30 @@ export class GmailClient {
         // If this contact doesn't exist in our map, or if this email is more recent
         // than the one we have stored, update the contact info
         if (
-          !contactMap.has(emailAddress) || 
+          !contactMap.has(emailAddress) ||
           new Date(contactMap.get(emailAddress)!.lastContactedRaw) < sentDate
         ) {
           // Convert the date to ISO format for consistent handling
           const isoDate = sentDate.toISOString();
-          
+
           contactMap.set(emailAddress, {
             id: emailAddress,
             name,
             email: emailAddress,
             lastContactedRaw: email.sentDateTime,
-            lastContacted: isoDate // Store in ISO format
+            lastContacted: isoDate, // Store in ISO format
+            interactions: contactMap.get(emailAddress)?.interactions ?? []
+          });
+        }
+
+        const contact = contactMap.get(emailAddress)!;
+        if ((contact.interactions?.length ?? 0) < MAX_INTERACTIONS_PER_CONTACT) {
+          contact.interactions!.push({
+            date: sentDate.toISOString(),
+            channel: 'email',
+            type: 'sent',
+            subject: email.subject,
+            snippet: email.snippet
           });
         }
       };

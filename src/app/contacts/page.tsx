@@ -22,6 +22,7 @@ import { Icon } from '@/components/ui';
 import React from 'react';
 import DomainStats from '@/components/DomainStats';
 import { adaptContacts } from '@/utils/contactAdapter';
+import { useSemanticSearch } from '@/hooks/useSemanticSearch';
 import { Suspense } from 'react';
 
 // Add a custom useDebounce hook after the imports and before the component code
@@ -450,6 +451,23 @@ function ContactsContent() {
   // Extract contacts from the data object
   const contacts = contactsData.contacts;
 
+  // Keep server-side embeddings fresh so semantic search has data to match
+  // against. The sync endpoint hashes content and skips unchanged contacts,
+  // so a repeat sync costs no embedding calls. Fire-and-forget: search just
+  // degrades to keyword-only if it fails.
+  const lastSyncKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!session?.user?.email || contacts.length === 0) return;
+    const syncKey = `${session.user.email}:${contactsData.lastUpdated}`;
+    if (lastSyncKeyRef.current === syncKey) return;
+    lastSyncKeyRef.current = syncKey;
+    fetch('/api/embeddings/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contacts }),
+    }).catch(() => {});
+  }, [session?.user?.email, contacts, contactsData.lastUpdated]);
+
   // Update the force refresh function
   const forceRefresh = useCallback(() => {
     if (!session?.user?.email) return;
@@ -820,7 +838,21 @@ function ContactsContent() {
     return filteredResults;
   };
   
-  const filteredContacts = getFilteredContacts(contacts, search, filter);
+  const keywordFilteredContacts = getFilteredContacts(contacts, search, filter);
+
+  // When the literal text filter finds nothing, fall back to semantic search
+  // over the embedded contacts (e.g. "investors I met in healthcare").
+  const semanticEnabled =
+    !!search && keywordFilteredContacts.length === 0 && !isDomainSearch(search);
+  const { matches: semanticMatches } = useSemanticSearch(search, semanticEnabled);
+
+  let filteredContacts = keywordFilteredContacts;
+  if (semanticEnabled && semanticMatches?.length) {
+    const byEmail = new Map(contacts.map(c => [c.email.toLowerCase(), c]));
+    filteredContacts = semanticMatches
+      .map(m => byEmail.get(m.contact_email))
+      .filter((c): c is Contact => !!c);
+  }
   
   // Get domain-grouped contacts when in domain filter mode and domain search is active
   const domainGroupedContacts = useMemo(() => {

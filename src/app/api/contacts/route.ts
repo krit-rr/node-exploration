@@ -49,11 +49,13 @@ export async function GET() {
         email: contact.email,
         lastContacted: contact.lastContacted,
         sentDates: contact.lastContactedRaw ? [contact.lastContactedRaw] : [], // Add sentDates array
-        interactions: contact.lastContactedRaw ? [{
+        // Gmail supplies per-message interactions with subject/snippet (used
+        // for semantic interaction search); Graph still yields one bare entry.
+        interactions: contact.interactions?.length ? contact.interactions : (contact.lastContactedRaw ? [{
           date: contact.lastContactedRaw,
           channel: 'email' as const,
           type: 'sent' as const
-        }] : [],
+        }] : []),
         provider: session.provider as 'google' | 'microsoft-entra-id'
       };
       
