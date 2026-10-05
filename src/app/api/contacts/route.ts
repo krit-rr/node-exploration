@@ -1,16 +1,17 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { GraphClient } from "@/lib/graph-client";
 import { GmailClient } from "@/lib/gmail-client";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { getToken } from "next-auth/jwt";
 import { Contact } from "@/types";
 import { enrichBatchViaAI } from "@/utils/enrichBatchViaAI";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session?.accessToken) {
+    // The provider access token lives only in the httpOnly JWT cookie
+    // (never on the client-visible session), so read it with getToken().
+    const token = await getToken({ req: request });
+
+    if (!token?.accessToken) {
       return NextResponse.json(
         { error: "You must be signed in to access this API" },
         { status: 401 }
@@ -20,11 +21,11 @@ export async function GET() {
     let contacts: Contact[];
     
     // Use the appropriate client based on the provider
-    if (session.provider === 'google') {
-      const gmailClient = new GmailClient(session.accessToken);
+    if (token.provider === 'google') {
+      const gmailClient = new GmailClient(token.accessToken);
       contacts = await gmailClient.getUniqueContactsByLatestInteraction();
-    } else if (session.provider === 'microsoft-entra-id') {
-      const graphClient = new GraphClient(session.accessToken);
+    } else if (token.provider === 'microsoft-entra-id') {
+      const graphClient = new GraphClient(token.accessToken);
       contacts = await graphClient.getUniqueContactsByLatestInteraction();
     } else {
       return NextResponse.json(
@@ -56,7 +57,7 @@ export async function GET() {
           channel: 'email' as const,
           type: 'sent' as const
         }] : []),
-        provider: session.provider as 'google' | 'microsoft-entra-id'
+        provider: token.provider as 'google' | 'microsoft-entra-id'
       };
       
       return transformed;

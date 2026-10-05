@@ -22,6 +22,7 @@ import { Icon } from '@/components/ui';
 import React from 'react';
 import DomainStats from '@/components/DomainStats';
 import { adaptContacts } from '@/utils/contactAdapter';
+import { useContacts, getContactsStorageKey, persistContacts, type ContactsData } from '@/hooks/useContacts';
 import { useSemanticSearch } from '@/hooks/useSemanticSearch';
 import { Suspense } from 'react';
 
@@ -41,14 +42,6 @@ function useDebounce<T>(value: T, delay: number): T {
 
   return debouncedValue;
 }
-
-// Helper function to get the consistent storage key
-const getContactsStorageKey = (userEmail: string | null | undefined): string => {
-  if (!userEmail) {
-    throw new Error('User email is required for storage key');
-  }
-  return `contacts_${userEmail}`;
-};
 
 // Helper function to get user-specific enrichment cache key
 const getEnrichmentCacheKey = (userEmail: string | null | undefined): string => {
@@ -201,12 +194,6 @@ function useGroupsPersistence(userEmail: string | null | undefined) {
   };
 }
 
-// Add this type near the top with other types
-type ContactsData = {
-  contacts: Contact[];
-  lastUpdated: string;
-};
-
 function ContactsContent() {
   const router = useRouter();
   const { data: session } = useSession();
@@ -345,108 +332,7 @@ function ContactsContent() {
 
 
 
-  const { data: contactsData = { contacts: [], lastUpdated: new Date().toISOString() }, isLoading, error } = useQuery<ContactsData>(
-    ['sentRecipients', session?.user?.email],
-    async () => {
-      // Ensure we have a valid session
-      if (!session?.user?.email) {
-        throw new Error('No active session');
-      }
-
-      // Check if we have cached data in localStorage
-      const storageKey = getContactsStorageKey(session.user.email);
-      if (!storageKey) {
-        throw new Error('Invalid storage key');
-      }
-
-      const cachedData = localStorage.getItem(storageKey);
-      
-      if (cachedData) {
-        try {
-          const parsedData = JSON.parse(cachedData);
-          
-          // Validate the structure of cached data
-          if (!parsedData || typeof parsedData !== 'object') {
-            console.warn('Invalid cached data structure, clearing cache');
-            localStorage.removeItem(storageKey);
-            throw new Error('Invalid cached data structure');
-          }
-
-          // If the cached data belongs to a different user, clear it
-          if (parsedData.userEmail && parsedData.userEmail !== session.user.email) {
-            console.warn('Cached data belongs to different user, clearing cache');
-            localStorage.removeItem(storageKey);
-            throw new Error('Invalid cached data');
-          }
-
-          // Handle both old and new data structures
-          let contacts = [];
-          if (Array.isArray(parsedData)) {
-            // Old format: direct array of contacts
-            contacts = parsedData;
-          } else if (Array.isArray(parsedData.contacts)) {
-            // New format: { contacts: [], lastUpdated: string }
-            contacts = parsedData.contacts;
-          } else {
-            console.warn('Invalid contacts data structure, clearing cache');
-            localStorage.removeItem(storageKey);
-            throw new Error('Invalid contacts data');
-          }
-
-          console.log('Loading contacts from cache');
-          // Show a non-intrusive toast notification
-          setTimeout(() => {
-            toast.success('Contacts loaded from cache', {
-              duration: 2000,
-              position: 'bottom-right',
-              style: { backgroundColor: '#F4F4FF', color: '#1E1E3F' }
-            });
-          }, 500);
-
-          return {
-            contacts: adaptContacts(contacts),
-            lastUpdated: parsedData.lastUpdated || new Date().toISOString()
-          };
-        } catch (error) {
-          // If there's any error parsing the cache, clear it
-          console.error('Error parsing cached data:', error);
-          localStorage.removeItem(storageKey);
-        }
-      }
-
-      console.log('Fetching contacts from API');
-      const response = await fetch('/api/contacts');
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch contacts');
-      }
-      
-      const data = await response.json();
-      const now = new Date().toISOString();
-      
-      // Cache the data in localStorage with user email for validation
-      const dataToCache = {
-        contacts: data.contacts || [],
-        lastUpdated: now,
-        userEmail: session.user.email
-      };
-      
-      localStorage.setItem(storageKey, JSON.stringify(dataToCache));
-      
-      return {
-        contacts: adaptContacts(data.contacts || []),
-        lastUpdated: now
-      };
-    },
-    {
-      enabled: !!session?.user?.email,
-      staleTime: 30 * 60 * 1000, // 30 minutes
-      cacheTime: 15 * 60 * 1000, // 15 minutes
-      refetchOnWindowFocus: false,
-      refetchOnMount: false,
-      refetchOnReconnect: false
-    }
-  );
+  const { data: contactsData = { contacts: [], lastUpdated: new Date().toISOString() }, isLoading, error } = useContacts();
 
   // Extract contacts from the data object
   const contacts = contactsData.contacts;
@@ -945,6 +831,10 @@ function ContactsContent() {
         return { contacts: newContacts, lastUpdated: now };
       });
     },
+    onError: (error) => {
+      console.error('Failed to update contact:', error);
+      toast.error('Failed to save changes. Please try again.');
+    },
   });
 
   const handleImportComplete = useCallback((newContacts: Contact[]) => {
@@ -996,11 +886,9 @@ function ContactsContent() {
   }, [queryClient, session?.user?.email]);
 
   const handleContactUpdate = async (updatedContact: Contact): Promise<void> => {
-    try {
-      await updateContactMutation.mutate(updatedContact);
-    } catch (error) {
-      console.error('Failed to update contact:', error);
-    }
+    // mutateAsync (not mutate) so failures reject and callers can react;
+    // the mutation's onError already shows the user a toast.
+    await updateContactMutation.mutateAsync(updatedContact);
   };
 
   const showToast = (message: string, type: 'success' | 'error') => {
@@ -1125,8 +1013,13 @@ function ContactsContent() {
       ]
     }));
     
-    queryClient.setQueryData(['sentRecipients', session?.user?.email], updatedContacts);
-    
+    queryClient.setQueryData<ContactsData>(
+      ['sentRecipients', session?.user?.email],
+      session?.user?.email
+        ? persistContacts(session.user.email, updatedContacts)
+        : { contacts: updatedContacts, lastUpdated: new Date().toISOString() }
+    );
+
     setActiveColumns(prev => {
       if (prev.includes(customKey)) return prev;
       return [...prev, customKey];
@@ -1571,7 +1464,7 @@ function ContactsContent() {
           <ContactDetail
             contact={selectedContact}
             onClose={() => setSelectedContact(null)}
-            onSave={(contact) => updateContactMutation.mutate(contact)}
+            onSave={(contact) => { handleContactUpdate(contact).catch(() => {}); }}
             onAddColumn={handleAddColumn}
           />
         )}
@@ -1605,11 +1498,12 @@ function ContactsContent() {
                 ...contact,
                 isSpam: emails.includes(contact.email)
               } as ContactWithSpam));
-              queryClient.setQueryData(['sentRecipients', session?.user?.email], updatedContacts);
-              
-              // Update localStorage with the new data
-              const storageKey = getContactsStorageKey(session?.user?.email);
-              localStorage.setItem(storageKey, JSON.stringify(updatedContacts));
+              queryClient.setQueryData<ContactsData>(
+                ['sentRecipients', session?.user?.email],
+                session?.user?.email
+                  ? persistContacts(session.user.email, updatedContacts)
+                  : { contacts: updatedContacts, lastUpdated: new Date().toISOString() }
+              );
             }}
             onUndo={(email) => {
               const updatedContacts = contacts.map((contact: Contact) => ({
@@ -1617,11 +1511,12 @@ function ContactsContent() {
                 isSpam: (contact as ContactWithSpam).isSpam === undefined ? false : 
                        email === contact.email ? false : (contact as ContactWithSpam).isSpam
               } as ContactWithSpam));
-              queryClient.setQueryData(['sentRecipients', session?.user?.email], updatedContacts);
-              
-              // Update localStorage with the new data
-              const storageKey = getContactsStorageKey(session?.user?.email);
-              localStorage.setItem(storageKey, JSON.stringify(updatedContacts));
+              queryClient.setQueryData<ContactsData>(
+                ['sentRecipients', session?.user?.email],
+                session?.user?.email
+                  ? persistContacts(session.user.email, updatedContacts)
+                  : { contacts: updatedContacts, lastUpdated: new Date().toISOString() }
+              );
             }}
             onExcludeFromAnalytics={(exclude) => {
               // Update analytics settings in user preferences
