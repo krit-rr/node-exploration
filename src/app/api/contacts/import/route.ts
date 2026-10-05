@@ -69,7 +69,6 @@ export async function POST(
       delayMs: 200,
       maxRetries: 2,
       cacheByDomain: true,
-      userEmail: session.user.email
     });
 
     return NextResponse.json(enrichedContacts, { status: 200 });

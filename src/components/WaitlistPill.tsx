@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { CheckCircle2, ArrowRight } from "lucide-react";
 import { toast } from "react-hot-toast";
-import { supabase } from '@/lib/supabaseClient';
+import { getSupabase } from '@/lib/supabaseClient';
 import SparkleConfetti from './SparkleConfetti';
 
 const gradient =
@@ -26,19 +26,9 @@ const WaitlistPill: React.FC = () => {
     }
     setLoading(true);
     try {
-      // Log the exact request we're about to make
-      console.log('Making Supabase request with:', {
-        table: 'waitlist',
-        data: { email }
-      });
-
-      // Make the request
-      const response = await supabase
+      const response = await getSupabase()
         .from('waitlist')
         .insert({ email });
-
-      // Log the full response
-      console.log('Full Supabase response:', response);
 
       if (response.error) {
         console.error('Supabase error:', {

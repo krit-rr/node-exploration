@@ -65,16 +65,14 @@ export async function GET() {
       delayMs: 200, // 200ms delay between API calls
       maxRetries: 2, // Retry failed enrichments twice
       cacheByDomain: true, // Cache results by domain to avoid duplicate API calls
-      userEmail: session.user.email // Add user email for persistent caching
     });
 
-    // Set cache control headers for stale-while-revalidate caching strategy
+    // This response is per-user and carries private data: it must never be
+    // stored by a shared cache (CDN/proxy). Client-side caching is handled
+    // in localStorage by the contacts page.
     const response = NextResponse.json({ contacts: enrichedContacts });
-    response.headers.set(
-      'Cache-Control', 
-      'public, s-maxage=600, stale-while-revalidate=300'
-    );
-    
+    response.headers.set('Cache-Control', 'private, no-store');
+
     return response;
   } catch (error) {
     console.error("Error fetching contacts:", error);

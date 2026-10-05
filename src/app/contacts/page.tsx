@@ -892,24 +892,25 @@ function ContactsContent() {
       }
       return response.json();
     },
-    onSuccess: (updatedContact) => {
-      console.log('Contact updated:', updatedContact);
-      queryClient.setQueryData(['sentRecipients', session?.user?.email], (oldData: Contact[] | undefined) => {
-        if (!oldData) return [updatedContact];
-        const newData = oldData.map(contact => 
-          contact.email === updatedContact.email ? updatedContact : contact
-        );
-        console.log('Updated contacts:', newData);
-        
-        // Update localStorage with the new data
+    onSuccess: (updatedContact: Contact) => {
+      // The query data is { contacts, lastUpdated }, not a bare array.
+      queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
+        const existing = oldData?.contacts ?? [];
+        const found = existing.some(c => c.email === updatedContact.email);
+        const newContacts = found
+          ? existing.map(contact => contact.email === updatedContact.email ? updatedContact : contact)
+          : [...existing, updatedContact];
+        const now = new Date().toISOString();
+
+        // Keep the localStorage copy in sync
         const storageKey = getContactsStorageKey(session?.user?.email);
         localStorage.setItem(storageKey, JSON.stringify({
-          contacts: newData,
-          lastUpdated: new Date().toISOString(),
+          contacts: newContacts,
+          lastUpdated: now,
           userEmail: session?.user?.email
         }));
-        
-        return newData;
+
+        return { contacts: newContacts, lastUpdated: now };
       });
     },
   });

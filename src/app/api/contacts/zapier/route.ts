@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
 import { Contact } from '@/types';
 import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+
+// Only Zapier's own webhook host. `hostname.includes('zapier.com')` would
+// accept e.g. `zapier.com.attacker.net` and let the server POST contacts anywhere.
+const isZapierWebhook = (url: URL) =>
+  url.protocol === 'https:' && (url.hostname === 'hooks.zapier.com' || url.hostname.endsWith('.zapier.com'));
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession();
+    const session = await getServerSession(authOptions);
     if (!session) {
       return new NextResponse('Unauthorized', { status: 401 });
     }
@@ -18,7 +24,7 @@ export async function POST(request: Request) {
     // Validate webhook URL
     try {
       const url = new URL(webhookUrl);
-      if (!url.hostname.includes('zapier.com')) {
+      if (!isZapierWebhook(url)) {
         return new NextResponse('Invalid Zapier webhook URL', { status: 400 });
       }
     } catch {
