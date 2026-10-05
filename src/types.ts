@@ -15,6 +15,8 @@ export interface Contact {
     channel: 'email' | 'message' | 'call';
     type: 'sent' | 'received';
     participants?: string[];
+    subject?: string;
+    snippet?: string;
   }[];
   sentDates?: string[];
   velocity?: {

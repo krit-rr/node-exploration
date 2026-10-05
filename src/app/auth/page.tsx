@@ -53,7 +53,7 @@ export default function Auth() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <span className="text-sm">Your data is <span className="font-semibold text-[#1E1E3F]">never stored</span> or <span className="font-semibold text-[#1E1E3F]">sold</span></span>
+                <span className="text-sm">Your data is <span className="font-semibold text-[#1E1E3F]">never sold</span> and you can <span className="font-semibold text-[#1E1E3F]">delete it anytime</span></span>
               </div>
               <div className="flex items-center gap-3">
                 <div className={`w-5 h-5 rounded-full bg-green-50 flex items-center justify-center flex-shrink-0 transition-transform duration-500 delay-200 ${isLoaded ? 'scale-100' : 'scale-0'}`}>
@@ -257,8 +257,8 @@ export default function Auth() {
                   <li className="flex items-start">
                     <span className="text-red-500 mr-2 flex-shrink-0">✗</span>
                     <div>
-                      <span className="font-medium">Email content/body & subject lines</span>
-                      <p className="text-sm text-gray-600">We never read the contents of your emails or access subject lines</p>
+                      <span className="font-medium">Full email bodies</span>
+                      <p className="text-sm text-gray-600">We receive only the subject line and a short preview snippet (about 100 characters) of emails you sent — never the full message</p>
                     </div>
                   </li>
                   <li className="flex items-start">
@@ -291,8 +291,8 @@ export default function Auth() {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                     <div>
-                      <p className="font-medium text-[#1E1E3F]">Temporary Processing Only</p>
-                      <p className="text-sm text-gray-600">We process your data in-memory and never store email content.</p>
+                      <p className="font-medium text-[#1E1E3F]">Minimal Storage</p>
+                      <p className="text-sm text-gray-600">We store contact details and a search index of subjects and short snippets so features like semantic search work. Full email bodies are never stored.</p>
                     </div>
                   </li>
                   <li className="flex items-start gap-3 bg-[#F4F4FF] p-3 rounded-lg transition-transform hover:scale-[1.01]">
@@ -301,7 +301,7 @@ export default function Auth() {
                     </svg>
                     <div>
                       <p className="font-medium text-[#1E1E3F]">No Data Selling</p>
-                      <p className="text-sm text-gray-600">Your data is never sold or shared with third parties.</p>
+                      <p className="text-sm text-gray-600">Your data is never sold. Contact details, subjects and snippets are processed by OpenAI (AI enrichment and search) and stored with Supabase (our database provider); anonymous usage analytics use PostHog.</p>
                     </div>
                   </li>
                   <li className="flex items-start gap-3 bg-[#F4F4FF] p-3 rounded-lg transition-transform hover:scale-[1.01]">
@@ -324,12 +324,12 @@ export default function Auth() {
                   Technical Implementation:
                 </h4>
                 <div className="bg-[#F4F4FF] p-3 rounded-lg text-sm overflow-x-auto">
-                  <p className="mb-2">Our Gmail API requests are specifically designed to prevent access to message content:</p>
+                  <p className="mb-2">Our Gmail API requests are specifically designed to avoid access to full message content:</p>
                   <div className="font-mono bg-[#E8E8FF] p-2 rounded mb-2 text-xs">
                     <code>format: 'metadata',</code><br/>
-                    <code>metadataHeaders: ['From', 'To', 'Cc', 'Bcc', 'Date', 'References', 'In-Reply-To', 'Message-ID']</code>
+                    <code>metadataHeaders: ['From', 'To', 'Cc', 'Bcc', 'Date', 'Subject']</code>
                   </div>
-                  <p>The <span className="font-semibold">format: 'metadata'</span> parameter ensures we <span className="text-red-600 font-semibold">never</span> receive message bodies, and the <span className="font-semibold">metadataHeaders</span> list explicitly defines the only headers we request.</p>
+                  <p>The <span className="font-semibold">format: 'metadata'</span> parameter means we <span className="text-red-600 font-semibold">never</span> receive message bodies — only the headers listed above plus Gmail's short preview snippet, which powers search.</p>
                 </div>
               </div>
 
