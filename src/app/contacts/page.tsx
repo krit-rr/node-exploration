@@ -1,7 +1,7 @@
 'use client';
 
 import AppLayout from '@/components/Layout/AppLayout';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSession } from "next-auth/react";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { format, isValid } from "date-fns";
@@ -18,10 +18,8 @@ import ImportModal from '@/components/ImportModal';
 import { toast } from 'react-hot-toast';
 import FilterChip from '@/components/ui/filters/FilterChip';
 import { IconName } from '@/components/ui/icons/Icon';
-import { Icon } from '@/components/ui';
 import React from 'react';
 import DomainStats from '@/components/DomainStats';
-import { adaptContacts } from '@/utils/contactAdapter';
 import { useContacts, getContactsStorageKey, persistContacts, type ContactsData } from '@/hooks/useContacts';
 import { useSemanticSearch } from '@/hooks/useSemanticSearch';
 import { Suspense } from 'react';
@@ -42,14 +40,6 @@ function useDebounce<T>(value: T, delay: number): T {
 
   return debouncedValue;
 }
-
-// Helper function to get user-specific enrichment cache key
-const getEnrichmentCacheKey = (userEmail: string | null | undefined): string => {
-  if (!userEmail) {
-    throw new Error('User email is required for enrichment cache key');
-  }
-  return `enrichment-cache_${userEmail}`;
-};
 
 // Helper function to get user-specific group storage key
 const getGroupsStorageKey = (userEmail: string | null | undefined): string => {

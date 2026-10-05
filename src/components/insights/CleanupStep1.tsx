@@ -15,7 +15,6 @@ interface CleanupStep1Props {
 }
 
 export default function CleanupStep1({ 
-  flaggedCount, 
   spamResults,
   totalContactsCount,
   onNext, 

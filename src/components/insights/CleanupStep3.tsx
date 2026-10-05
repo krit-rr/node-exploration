@@ -36,7 +36,6 @@ export default function CleanupStep3({
   currentStep,
   totalSteps,
 }: CleanupStep3Props) {
-  const totalContacts = actions.length;
   const categoryCounts = categorizations.reduce((acc, { category }) => {
     acc[category] = (acc[category] || 0) + 1;
     return acc;

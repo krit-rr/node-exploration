@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { Contact } from '@/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import Papa from 'papaparse';
@@ -107,15 +107,6 @@ Jane,Smith,https://linkedin.com/in/janesmith,jane@example.com,Tech Corp,CTO,2024
   }
 ];
 
-// List of all possible main column keys and their CSV header variants (case-insensitive)
-const MAIN_COLUMN_KEYS = [
-  'name', 'full name', 'first name', 'last name',
-  'email', 'email address', 'attendee email',
-  'company', 'organization',
-  'industry',
-  'lastcontacted', 'last emailed', 'last emailed date', 'last email date', 'registration_date', 'order date', 'connected on'
-];
-
 // Canonical columns for preview and import
 const CANONICAL_COLUMNS = [
   { key: 'name', label: 'Name' },
@@ -124,19 +115,6 @@ const CANONICAL_COLUMNS = [
   { key: 'industry', label: 'Industry' },
   { key: 'lastEmailed', label: 'Last Emailed Date' },
 ];
-
-// Helper: get custom fields from preview data, excluding main columns and their variants
-function getCustomFieldColumns(data: CSVContact[]) {
-  const customKeys = new Set<string>();
-  data.forEach(row => {
-    Object.keys(row).forEach(key => {
-      if (!MAIN_COLUMN_KEYS.some(mainKey => mainKey.replace(/\s+/g, '').toLowerCase() === key.replace(/\s+/g, '').toLowerCase())) {
-        customKeys.add(key);
-      }
-    });
-  });
-  return Array.from(customKeys).map(key => ({ key, label: key }));
-}
 
 // Helper: get value for a column in a row, using source mapping
 function getCellValue(row: CSVContact, colKey: string, source: DataSource) {
@@ -176,11 +154,6 @@ function getCellValue(row: CSVContact, colKey: string, source: DataSource) {
 }
 
 // Helper: get all preview columns
-function getPreviewColumns(data: CSVContact[]) {
-  const customFields = getCustomFieldColumns(data);
-  return [...MAIN_COLUMN_KEYS.map(key => ({ key, label: key })), ...customFields];
-}
-
 // Transform a CSV row to canonical fields
 function transformRowToCanonical(row: CSVContact): Record<string, string> {
   // Name: first + last, or just name
@@ -206,14 +179,13 @@ function transformRowToCanonical(row: CSVContact): Record<string, string> {
 export default function ImportModal({ isOpen, onClose, onImportComplete }: ImportModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string>('');
-  const [importing, setImporting] = useState(false);
+  const [, setImporting] = useState(false);
   const [previewData, setPreviewData] = useState<CSVContact[]>([]);
-  const [displayedContacts, setDisplayedContacts] = useState<CSVContact[]>([]);
+  const [, setDisplayedContacts] = useState<CSVContact[]>([]);
   const [step, setStep] = useState<'upload' | 'preview' | 'importing'>('upload');
   const [importStats, setImportStats] = useState({ total: 0, valid: 0, duplicate: 0 });
   const [selectedSource, setSelectedSource] = useState<DataSource>(DATA_SOURCES[0]);
   const [previewPage, setPreviewPage] = useState(1);
-  const PREVIEW_PAGE_SIZE = 10;
 
   const resetState = () => {
     setFile(null);
@@ -253,7 +225,6 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }: Impor
             skipEmptyLines: true,
             preview: 5, // Show first 5 rows
             complete: (previewResults) => {
-              const headers = Object.keys(previewResults.data[0] || {});
               const mappedPreview = previewResults.data.map(row => ({
                 ...row,
                 name: `${row['First Name']} ${row['Last Name']}`.trim(),
@@ -275,81 +246,9 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }: Impor
           });
         }
       });
-    } catch (err) {
+    } catch {
       setError('Error reading file preview');
     }
-  };
-
-  const downloadTemplate = () => {
-    const template = 'name,email,company,last emailed\nJohn Doe,john@example.com,Acme Inc,2024-03-20\nJane Smith,jane@example.com,Tech Corp,2024-03-19\n';
-    const blob = new Blob([template], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'contact_import_template.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-  };
-
-  // Match field names from CSV to our expected fields (case-insensitive)
-  const fieldMappings = {
-    name: ['name', 'full name', 'contact name', 'fullname', 'username', 'full_name'],
-    email: ['email', 'email address', 'mail', 'contact email', 'email_address'],
-    company: ['company', 'organization', 'company name', 'business', 'employer', 'workplace'],
-    lastContacted: ['last emailed', 'last email date', 'last contacted', 'last contact date']
-  };
-
-  const mapHeadersToContact = (headers: string[], values: string[]): Partial<Contact> => {
-    const findValue = (mappings: string[]) => {
-      const headerIndex = headers.findIndex(h => 
-        mappings.some(m => h.toLowerCase().includes(m.toLowerCase()))
-      );
-      return headerIndex !== -1 ? values[headerIndex]?.trim() : '';
-    };
-
-    const { headerMappings } = selectedSource;
-    
-    return {
-      name: findValue(headerMappings.name),
-      email: findValue(headerMappings.email).toLowerCase(),
-      company: findValue(headerMappings.company || []),
-      lastContacted: findValue(headerMappings.lastContacted || []) || new Date().toISOString()
-    };
-  };
-
-  const validateContact = (contact: Partial<Contact>, source: DataSource) => {
-    const errors: string[] = [];
-    
-    // Required fields for all sources except LinkedIn
-    if (source.id !== 'linkedin') {
-      if (!contact.name || contact.name === 'Unnamed Contact') {
-        errors.push('Name is required');
-      }
-      if (!contact.email) {
-        errors.push('Email is required');
-      }
-    }
-
-    // LinkedIn-specific validation
-    if (source.id === 'linkedin') {
-      if (!contact.name || contact.name === 'Unnamed Contact') {
-        errors.push('First Name and Last Name are required');
-      }
-    }
-
-    // Email format validation when present
-    if (contact.email && !contact.email.includes('@')) {
-      errors.push('Invalid email format');
-    }
-
-    // Company validation - optional but must be string if present
-    if (contact.company && typeof contact.company !== 'string') {
-      errors.push('Company must be text');
-    }
-
-    return errors;
   };
 
   const handleImport = async () => {
@@ -376,7 +275,6 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }: Impor
             return;
           }
 
-          const headers = Object.keys(results.data[0] || {});
           const contacts = results.data.map(transformRowToCanonical);
 
           // Validate contacts before sending
@@ -487,7 +385,6 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }: Impor
             skipEmptyLines: true,
             preview: 5,
             complete: (previewResults) => {
-              const headers = Object.keys(previewResults.data[0] || {});
               const mappedPreview = previewResults.data.map(row => ({
                 ...row,
                 name: `${row['First Name']} ${row['Last Name']}`.trim(),
@@ -509,68 +406,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }: Impor
           });
         }
       });
-    } catch (err) {
-      setError('Error reading file preview');
-    }
-  };
-
-  const handleFilePreview = async (file: File) => {
-    try {
-      const text = await file.text();
-      
-      // First pass: get total count from full file
-      Papa.parse(text, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (fullResults) => {
-          // Second pass: get preview rows
-          Papa.parse<CSVContact>(text, {
-            header: true,
-            skipEmptyLines: true,
-            preview: 5, // Show first 5 rows for preview
-            complete: (previewResults) => {
-              const headers = Object.keys(previewResults.data[0] || {});
-              const mappedPreview = previewResults.data.map(row => {
-                const values = Object.values(row).map(v => v?.toString() || '');
-                const mappedContact = mapHeadersToContact(headers, values);
-                return {
-                  ...row,
-                  name: mappedContact.name,
-                  email: mappedContact.email,
-                  company: mappedContact.company,
-                  lastContacted: mappedContact.lastContacted
-                } as CSVContact;
-              });
-
-              setPreviewData(mappedPreview);
-              setDisplayedContacts(mappedPreview.slice(0, 10));
-              setStep('preview');
-              
-              // Calculate total from full file
-              const total = (fullResults.data as Record<string, string>[]).length;
-              
-              // Count valid contacts - accept if we have either name or email
-              const validCount = (fullResults.data as Record<string, string>[]).filter(row => {
-                if (selectedSource.id === 'linkedin') {
-                  // For LinkedIn, count as valid if we have both first and last name
-                  const firstName = row['First Name']?.trim();
-                  const lastName = row['Last Name']?.trim();
-                  return firstName && lastName;
-                }
-                // For other sources, count as valid if we have name
-                return row['name']?.trim();
-              }).length;
-              
-              setImportStats({ 
-                total,
-                valid: validCount,
-                duplicate: 0 
-              });
-            }
-          });
-        }
-      });
-    } catch (err) {
+    } catch {
       setError('Error reading file preview');
     }
   };

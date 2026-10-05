@@ -1,8 +1,6 @@
-import { Contact, Group } from "@/types";
-import { useState, useMemo } from "react";
-import { calculateVelocityScore } from '@/utils/velocityTracking';
+import { Contact } from "@/types";
+import { useMemo } from "react";
 import GroupMembers from '@/components/insights/GroupMembers';
-import { formatDistanceToNow } from 'date-fns';
 import { adaptContact } from '@/utils/contactAdapter';
 
 // Add this before the SmartInsights component
@@ -21,7 +19,6 @@ interface SmartInsightsProps {
 }
 
 export default function SmartInsights({ contacts, onGroupCreate }: SmartInsightsProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
 
   // First adapt all contacts for processing
   const adaptedContacts = useMemo(() => {

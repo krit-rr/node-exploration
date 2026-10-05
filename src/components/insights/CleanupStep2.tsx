@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Contact } from '@/types';
+import { Icon, Button, type IconName } from '@/components/ui';
 import type { FlaggedContact } from './types.d';
-import TaggingComponent from './TaggingComponent';
 import ProgressBar from '@/components/ProgressBar';
 import { motion } from 'framer-motion';
-import { Button, Icon, FilterChip, IconName } from '@/components/ui';
 
 type CategoryType = 'ignore' | 'review' | 'keep';
 
@@ -30,13 +29,11 @@ interface CategoryInfo {
 
 export default function CleanupStep2({
   contacts,
-  actions,
   onNext,
   onBack,
   onSkip,
   currentStep,
   totalSteps,
-  totalContactsCount,
   onCategorize,
 }: CleanupStep2Props) {
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());

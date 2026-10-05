@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import Image from 'next/image';
 
 interface Props {
@@ -7,7 +6,7 @@ interface Props {
   variant?: 'dashboard' | 'insights';
 }
 
-export default function OutcomeSelector({ onSelect, selectedOutcome, variant = 'dashboard' }: Props) {
+export default function OutcomeSelector({ onSelect, variant = 'dashboard' }: Props) {
   const dashboardOutcomes = [
     {
       id: 'all' as const,

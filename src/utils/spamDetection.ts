@@ -77,7 +77,7 @@ export function analyzeContact(contact: Contact): SpamDetectionResult {
 function matchesEmailPatterns(email: string): string[] {
   const matches: string[] = [];
   
-  Object.entries(EMAIL_PATTERNS).forEach(([category, data]) => {
+  Object.values(EMAIL_PATTERNS).forEach((data) => {
     const hasMatch = data.patterns.some(pattern => {
       const regex = new RegExp(pattern, 'i');
       return regex.test(email);
