@@ -6,7 +6,6 @@ import { DefaultSession } from "next-auth";
 import { SessionStrategy } from "next-auth";
 
 interface CustomSession extends DefaultSession {
-  accessToken?: string;
   provider?: string;
 }
 
@@ -88,13 +87,20 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }: { session: CustomSession, token: CustomToken }) {
-      session.accessToken = token.accessToken;
+      // The provider access token deliberately stays in the httpOnly JWT
+      // cookie: exposing it here would hand a Gmail/Graph bearer token to any
+      // script running in the page. Server code reads it via getToken().
       session.provider = token.provider;
       return session;
     },
     async redirect({ url, baseUrl }: { url: string, baseUrl: string }) {
-      if (url.startsWith(baseUrl)) return url;
-      if (url.startsWith('/')) return `${baseUrl}${url}`;
+      // Compare origins, not string prefixes: "https://app.example.com.evil.com"
+      // passes a startsWith check against "https://app.example.com".
+      try {
+        if (new URL(url, baseUrl).origin === new URL(baseUrl).origin) {
+          return new URL(url, baseUrl).toString();
+        }
+      } catch {}
       return `${baseUrl}/contacts`;
     },
   },
