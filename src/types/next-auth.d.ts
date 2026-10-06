@@ -3,6 +3,7 @@ import "next-auth";
 declare module "next-auth" {
   interface Session {
     provider?: string;
+    error?: "RefreshTokenError";
     user: {
       id?: string;
       name?: string | null;
@@ -15,6 +16,10 @@ declare module "next-auth" {
 declare module "next-auth/jwt" {
   interface JWT {
     accessToken?: string;
+    refreshToken?: string;
+    /** Unix seconds when accessToken expires. */
+    expiresAt?: number;
     provider?: string;
+    error?: "RefreshTokenError";
   }
 }

@@ -3,6 +3,11 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { enrichBatchViaAI } from '@/utils/enrichBatchViaAI';
 import { Contact } from '@/types';
+import { upsertImportedContacts } from '@/lib/contactsStore';
+import { rateLimit } from '@/lib/rateLimit';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_IMPORT_CONTACTS = 2000;
 
 export async function POST(
   request: Request
@@ -14,11 +19,26 @@ export async function POST(
   }
 
   try {
+    // Each unique domain in an import costs an OpenAI call; cap size and rate.
+    const limited = rateLimit(`import:${session.user.email.toLowerCase()}`, { limit: 4, windowMs: 60_000 });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: 'Too many imports, slow down' },
+        { status: 429, headers: { 'Retry-After': String(limited.retryAfterSeconds) } }
+      );
+    }
+
     const { contacts } = await request.json();
 
     // Validate the imported contacts
     if (!Array.isArray(contacts)) {
       return NextResponse.json({ error: 'Invalid contacts data' }, { status: 400 });
+    }
+    if (contacts.length > MAX_IMPORT_CONTACTS) {
+      return NextResponse.json(
+        { error: `Too many contacts in one import (max ${MAX_IMPORT_CONTACTS})` },
+        { status: 400 }
+      );
     }
 
     // Validate each contact has required fields
@@ -26,7 +46,7 @@ export async function POST(
       const errors: string[] = [];
       if (!contact.email) errors.push('Email is required');
       if (!contact.name) errors.push('Name is required');
-      if (contact.email && !contact.email.includes('@')) errors.push('Invalid email format');
+      if (contact.email && !EMAIL_RE.test(contact.email)) errors.push('Invalid email format');
       return errors.length > 0 ? { row: index + 1, errors } : null;
     }).filter(Boolean);
 
@@ -70,6 +90,12 @@ export async function POST(
       maxRetries: 2,
       cacheByDomain: true,
     });
+
+    try {
+      await upsertImportedContacts(session.user.email.toLowerCase(), enrichedContacts);
+    } catch (error) {
+      console.error('Failed to persist imported contacts (returning unpersisted):', error);
+    }
 
     return NextResponse.json(enrichedContacts, { status: 200 });
   } catch (error: any) {

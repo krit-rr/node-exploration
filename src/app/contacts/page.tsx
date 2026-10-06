@@ -20,7 +20,7 @@ import FilterChip from '@/components/ui/filters/FilterChip';
 import { IconName } from '@/components/ui/icons/Icon';
 import React from 'react';
 import DomainStats from '@/components/DomainStats';
-import { useContacts, getContactsStorageKey, persistContacts, type ContactsData } from '@/hooks/useContacts';
+import { useContacts, syncContacts, getContactsStorageKey, persistContacts, type ContactsData } from '@/hooks/useContacts';
 import { useSemanticSearch } from '@/hooks/useSemanticSearch';
 import { Suspense } from 'react';
 
@@ -116,25 +116,25 @@ function useGroupsPersistence(userEmail: string | null | undefined) {
       const savedGroups = localStorage.getItem(groupsKey);
       
       let loadedGroupsData: Array<{id: string, name: string, members: string[]}> = [];
-      
+
       if (savedGroups) {
-        console.log('Loading groups from localStorage:', groupsKey);
         loadedGroupsData = JSON.parse(savedGroups);
-        setGroupsState(loadedGroupsData);
       } else {
         // Migration from older format
         const oldGroups = localStorage.getItem('contact-groups');
         if (oldGroups) {
           const parsedOldGroups = JSON.parse(oldGroups);
           if (Array.isArray(parsedOldGroups) && parsedOldGroups.length > 0) {
-            console.log('Migrating groups to user-specific storage format');
             localStorage.setItem(groupsKey, oldGroups);
             loadedGroupsData = parsedOldGroups;
-            setGroupsState(parsedOldGroups);
           }
         }
       }
-      
+
+      // ALWAYS set state (empty array included): on an account switch this
+      // is what prevents the previous user's groups from lingering in memory
+      // and being re-persisted under the new user's key.
+      setGroupsState(loadedGroupsData);
       setLoadedGroups(true);
     } catch (error) {
       console.error('Error loading data:', error);
@@ -236,16 +236,6 @@ function ContactsContent() {
     }
   }, [filter, pathname, router, searchParams, groupIdFromUrl]);
   
-  // Add a separate effect to ensure groups persist across page loads
-  useEffect(() => {
-    // This will run on every render to ensure we always have the most up-to-date groups
-    if (userEmail && groups.length > 0) {
-      const groupsKey = getGroupsStorageKey(userEmail);
-      localStorage.setItem(groupsKey, JSON.stringify(groups));
-      console.log('Persisting groups to localStorage:', groups.length, 'groups');
-    }
-  }, [groups, userEmail]);
-  
   // Force reload data when the component becomes visible
   useEffect(() => {
     // This will run when the component mounts or becomes visible
@@ -344,98 +334,55 @@ function ContactsContent() {
     }).catch(() => {});
   }, [session?.user?.email, contacts, contactsData.lastUpdated]);
 
-  // Update the force refresh function
-  const forceRefresh = useCallback(() => {
+  // Force refresh = re-pull from the mail provider and merge into the
+  // server store. Edits and imports survive: this no longer destroys data.
+  const forceRefresh = useCallback(async () => {
     if (!session?.user?.email) return;
-    
-    // Only clear the current user's cache
-    const storageKey = getContactsStorageKey(session.user.email);
-    localStorage.removeItem(storageKey);
-    
-    // Invalidate and refetch
-    queryClient.invalidateQueries({ 
-      queryKey: ['sentRecipients', session.user.email],
-      refetchType: 'active'
-    });
-    
-    toast.success('Refreshing contacts from server...', {
+    const email = session.user.email;
+
+    toast.success('Syncing with your mailbox...', {
       duration: 2000,
       position: 'bottom-right',
       style: { backgroundColor: '#F4F4FF', color: '#1E1E3F' }
     });
+    try {
+      const data = await syncContacts(email);
+      queryClient.setQueryData(['sentRecipients', email], data);
+    } catch (error) {
+      console.error('Mailbox sync failed:', error);
+      toast.error('Sync failed. Please try again.');
+    }
   }, [queryClient, session?.user?.email]);
 
-  // Check if cleanup assistant has been shown before - this needs to run AFTER contacts are loaded
+  // Cleanup-assistant visibility: one user-scoped sessionStorage record
+  // ({ shownAt, dismissedAt }) replaces the four overlapping localStorage
+  // booleans that used to choreograph this (one of which could latch the
+  // assistant off permanently, and one of which was never written).
   useEffect(() => {
-    if (!session?.user?.email || isLoading) return;
-    
-    console.log("Checking cleanup assistant status...");
-    
-    // First check if assistant was just manually closed in this session
-    // This is a strong signal that we should not show it again immediately
-    const justClosed = localStorage.getItem('cleanup_just_closed') === 'true';
-    if (justClosed) {
-      console.log("Cleanup assistant was just closed, not showing again");
-      setShowCleanupAssistant(false);
-      return;
+    if (!session?.user?.email || isLoading || contacts.length === 0) return;
+    try {
+      const key = `cleanup-state_${session.user.email}`;
+      const state = JSON.parse(sessionStorage.getItem(key) ?? '{}');
+      if (!state.shownAt && !state.dismissedAt) {
+        setShowCleanupAssistant(true);
+        sessionStorage.setItem(key, JSON.stringify({ ...state, shownAt: new Date().toISOString() }));
+      }
+    } catch {
+      // sessionStorage unavailable: just don't auto-open the assistant
     }
-    
-    // Check if we should force show the cleanup assistant (after Clear Session or explicit refresh)
-    const forceShow = localStorage.getItem('force_show_cleanup') === 'true';
-    if (forceShow) {
-      // Clear the force show flag
-      localStorage.removeItem('force_show_cleanup');
-      console.log("Force showing cleanup assistant after session clear or refresh");
-      setShowCleanupAssistant(true);
-      return;
-    }
-    
-    // Check if data was loaded from cache
-    const loadedFromCache = localStorage.getItem('sentRecipients_loaded_from_cache') === 'true';
-    
-    // Get the storage key for this user's cleanup assistant state
-    const sessionKey = `cleanup-shown-in-session-${session.user.email}`;
-    
-    // Check if we've already shown the assistant in this session
-    const shownInCurrentSession = localStorage.getItem(sessionKey) === 'true';
-    
-    console.log("Cleanup assistant shown in session:", shownInCurrentSession, "Data loaded from cache:", loadedFromCache);
-    
-    // Only show cleanup assistant if:
-    // 1. It hasn't been shown yet in this session AND
-    // 2. Data was NOT loaded from cache (i.e., it was freshly loaded from the API)
-    if (!shownInCurrentSession && !loadedFromCache) {
-      console.log("Showing cleanup assistant (fresh API data)");
-      setShowCleanupAssistant(true);
-      // Mark that we've shown it in this session
-      localStorage.setItem(sessionKey, 'true');
-    } else {
-      console.log("Not showing cleanup assistant");
-      setShowCleanupAssistant(false);
-    }
-  }, [session?.user?.email, isLoading]);
+  }, [session?.user?.email, isLoading, contacts.length]);
 
-  // Function to invalidate cache and refresh data
+  // Refresh = refetch from the server store (cheap; no mailbox pull)
   const refreshContacts = useCallback(() => {
-    const storageKey = getContactsStorageKey(session?.user?.email);
-    const cachedData = localStorage.getItem(storageKey);
-    
-    if (cachedData) {
-      // If we have cached data, just revalidate the query
-      queryClient.invalidateQueries({ 
-        queryKey: ['sentRecipients', session?.user?.email],
-        refetchType: 'none' // Don't trigger a refetch
-      });
-      toast.success('Contacts refreshed from cache', {
-        duration: 2000,
-        position: 'bottom-right',
-        style: { backgroundColor: '#F4F4FF', color: '#1E1E3F' }
-      });
-    } else {
-      // Only if we don't have cached data, force a refresh
-      localStorage.setItem('sentRecipients_loaded_from_cache', 'false');
-      queryClient.invalidateQueries({ queryKey: ['sentRecipients', session?.user?.email] });
-    }
+    queryClient.invalidateQueries({
+      queryKey: ['sentRecipients', session?.user?.email],
+      refetchType: 'active'
+    });
+    toast.success('Refreshing contacts...', {
+      duration: 2000,
+      position: 'bottom-right',
+      style: { backgroundColor: '#F4F4FF', color: '#1E1E3F' }
+    });
   }, [queryClient, session?.user?.email]);
 
 
@@ -443,12 +390,8 @@ function ContactsContent() {
   // For development/testing - simulate a new session without clearing permanent preferences
   const resetSessionOnly = useCallback(() => {
     if (session?.user?.email) {
-      // Set consistent flags for testing
-      localStorage.removeItem(`cleanup-shown-in-session-${session.user.email}`);
-      localStorage.setItem('force_show_cleanup', 'true');
-      localStorage.setItem('sentRecipients_loaded_from_cache', 'false');
-      localStorage.removeItem('cleanup_just_closed'); // Make sure we clear this
-      
+      sessionStorage.removeItem(`cleanup-state_${session.user.email}`);
+
       // Show cleanup assistant immediately
       setShowCleanupAssistant(true);
       
@@ -787,38 +730,33 @@ function ContactsContent() {
   }, [customFieldsData, updateColumns, activeColumns]);
 
   const updateContactMutation = useMutation({
-    mutationFn: async (updatedContact: Contact) => {
-      const response = await fetch(`/api/contacts/${updatedContact.email}`, {
+    // Addressed by the ORIGINAL email so an email edit updates the stored
+    // row in place instead of forking a duplicate contact.
+    mutationFn: async ({ contact, originalEmail }: { contact: Contact; originalEmail: string }) => {
+      const response = await fetch(`/api/contacts/${encodeURIComponent(originalEmail)}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(updatedContact),
+        body: JSON.stringify(contact),
       });
       if (!response.ok) {
         throw new Error('Failed to update contact');
       }
       return response.json();
     },
-    onSuccess: (updatedContact: Contact) => {
-      // The query data is { contacts, lastUpdated }, not a bare array.
+    onSuccess: (data: Contact & { persisted?: boolean }, variables) => {
+      const { persisted: _persisted, ...savedContact } = data;
       queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
         const existing = oldData?.contacts ?? [];
-        const found = existing.some(c => c.email === updatedContact.email);
+        const found = existing.some(c => c.email === variables.originalEmail);
         const newContacts = found
-          ? existing.map(contact => contact.email === updatedContact.email ? updatedContact : contact)
-          : [...existing, updatedContact];
-        const now = new Date().toISOString();
+          ? existing.map(contact => contact.email === variables.originalEmail ? (savedContact as Contact) : contact)
+          : [...existing, savedContact as Contact];
 
-        // Keep the localStorage copy in sync
-        const storageKey = getContactsStorageKey(session?.user?.email);
-        localStorage.setItem(storageKey, JSON.stringify({
-          contacts: newContacts,
-          lastUpdated: now,
-          userEmail: session?.user?.email
-        }));
-
-        return { contacts: newContacts, lastUpdated: now };
+        return session?.user?.email
+          ? persistContacts(session.user.email, newContacts)
+          : { contacts: newContacts, lastUpdated: new Date().toISOString() };
       });
     },
     onError: (error) => {
@@ -875,10 +813,13 @@ function ContactsContent() {
     });
   }, [queryClient, session?.user?.email]);
 
-  const handleContactUpdate = async (updatedContact: Contact): Promise<void> => {
+  const handleContactUpdate = async (updatedContact: Contact, originalEmail?: string): Promise<void> => {
     // mutateAsync (not mutate) so failures reject and callers can react;
     // the mutation's onError already shows the user a toast.
-    await updateContactMutation.mutateAsync(updatedContact);
+    await updateContactMutation.mutateAsync({
+      contact: updatedContact,
+      originalEmail: originalEmail ?? updatedContact.email,
+    });
   };
 
   const showToast = (message: string, type: 'success' | 'error') => {
@@ -1023,7 +964,6 @@ function ContactsContent() {
 
   const handleStartCleanup = () => {
     setShowOnboarding(false);
-    localStorage.removeItem('cleanup_just_closed'); // Clear this flag
     setShowCleanupAssistant(true);
   };
 
@@ -1136,11 +1076,9 @@ function ContactsContent() {
                         }
                       });
                       
-                      // Set flags for the next load:
-                      // 1. Force show cleanup (for testing)
-                      localStorage.setItem('force_show_cleanup', 'true');
-                      // 2. Mark that we're not loading from cache
-                      localStorage.setItem('sentRecipients_loaded_from_cache', 'false');
+                      if (session?.user?.email) {
+                        sessionStorage.removeItem(`cleanup-state_${session.user.email}`);
+                      }
                       
                       toast.success('All data cleared', {
                         duration: 2000,
@@ -1454,7 +1392,7 @@ function ContactsContent() {
           <ContactDetail
             contact={selectedContact}
             onClose={() => setSelectedContact(null)}
-            onSave={(contact) => { handleContactUpdate(contact).catch(() => {}); }}
+            onSave={(contact) => { handleContactUpdate(contact, selectedContact.email).catch(() => {}); }}
             onAddColumn={handleAddColumn}
           />
         )}
@@ -1484,6 +1422,11 @@ function ContactsContent() {
           <InboxCleanupAssistant 
             contacts={contacts}
             onMarkAsSpam={(emails) => {
+              fetch('/api/contacts/spam', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails, isSpam: true }),
+              }).catch(() => {});
               const updatedContacts = contacts.map((contact: Contact) => ({
                 ...contact,
                 isSpam: emails.includes(contact.email)
@@ -1496,6 +1439,11 @@ function ContactsContent() {
               );
             }}
             onUndo={(email) => {
+              fetch('/api/contacts/spam', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ emails: [email], isSpam: false }),
+              }).catch(() => {});
               const updatedContacts = contacts.map((contact: Contact) => ({
                 ...contact,
                 isSpam: (contact as ContactWithSpam).isSpam === undefined ? false : 
@@ -1516,14 +1464,11 @@ function ContactsContent() {
               });
             }}
             onClose={() => {
-              // Set flag that we just closed the assistant to prevent it from immediately showing again
-              localStorage.setItem('cleanup_just_closed', 'true');
-              
-              // After a short delay, remove the "just closed" flag to allow normal behavior later
-              setTimeout(() => {
-                localStorage.removeItem('cleanup_just_closed');
-              }, 5000); // 5 seconds is enough to prevent double-showing
-              
+              try {
+                const key = `cleanup-state_${session?.user?.email}`;
+                const state = JSON.parse(sessionStorage.getItem(key) ?? '{}');
+                sessionStorage.setItem(key, JSON.stringify({ ...state, dismissedAt: new Date().toISOString() }));
+              } catch {}
               setShowCleanupAssistant(false);
             }}
           />

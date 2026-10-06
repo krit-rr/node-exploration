@@ -1,6 +1,7 @@
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarFooter, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarTrigger, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarSeparator } from '@/components/ui/sidebar';
 import { Icon } from '@/components/ui';
-import { useSession, signOut } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
+import { signOutAndPurge } from '@/lib/clientSignOut';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';
@@ -97,7 +98,7 @@ function AppSidebar() {
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton 
-                  onClick={() => signOut({ callbackUrl: '/' })}
+                  onClick={() => signOutAndPurge(session?.user?.email)}
                   tooltip="Sign out"
                   className="justify-start items-center"
                 >

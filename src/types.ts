@@ -33,6 +33,7 @@ export interface Contact {
   tags?: string[];
   notes?: string;
   provider?: 'google' | 'microsoft-entra-id';
+  isSpam?: boolean;
   enrichedBy?: 'ai';
 }
 

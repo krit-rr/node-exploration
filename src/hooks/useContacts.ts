@@ -38,9 +38,47 @@ export function persistContacts(userEmail: string, contacts: Contact[]): Contact
   return { contacts, lastUpdated };
 }
 
+/** Read and validate the local cache; returns null when unusable. */
+function readCachedContacts(userEmail: string): ContactsData | null {
+  try {
+    const cachedData = localStorage.getItem(getContactsStorageKey(userEmail));
+    if (!cachedData) return null;
+    const parsedData = JSON.parse(cachedData);
+    if (!parsedData || typeof parsedData !== 'object') return null;
+    if (parsedData.userEmail && parsedData.userEmail !== userEmail) return null;
+    const contacts = Array.isArray(parsedData)
+      ? parsedData
+      : Array.isArray(parsedData.contacts)
+        ? parsedData.contacts
+        : null;
+    if (!contacts) return null;
+    return {
+      contacts: adaptContacts(contacts),
+      lastUpdated: parsedData.lastUpdated || new Date().toISOString()
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Re-pull from the mail provider and merge into the server store
+ * (GET /api/contacts?sync=1), then update the local cache.
+ */
+export async function syncContacts(userEmail: string): Promise<ContactsData> {
+  const response = await fetch('/api/contacts?sync=1');
+  if (!response.ok) {
+    throw new Error('Failed to sync contacts');
+  }
+  const data = await response.json();
+  const rawContacts = data.contacts || [];
+  const { lastUpdated } = persistContacts(userEmail, rawContacts);
+  return { contacts: adaptContacts(rawContacts), lastUpdated };
+}
+
 /**
  * The one contacts query: a single key, shape, and fetcher shared by every
- * page, with localStorage as a read-through cache in front of /api/contacts.
+ * page. The server store is authoritative; localStorage is an offline cache.
  */
 export function useContacts() {
   const { data: session } = useSession();
@@ -52,76 +90,34 @@ export function useContacts() {
       if (!session?.user?.email) {
         throw new Error('No active session');
       }
+      const userEmail = session.user.email;
 
-      // Check if we have cached data in localStorage
-      const storageKey = getContactsStorageKey(session.user.email);
-      const cachedData = localStorage.getItem(storageKey);
-
-      if (cachedData) {
-        try {
-          const parsedData = JSON.parse(cachedData);
-
-          // Validate the structure of cached data
-          if (!parsedData || typeof parsedData !== 'object') {
-            console.warn('Invalid cached data structure, clearing cache');
-            localStorage.removeItem(storageKey);
-            throw new Error('Invalid cached data structure');
-          }
-
-          // If the cached data belongs to a different user, clear it
-          if (parsedData.userEmail && parsedData.userEmail !== session.user.email) {
-            console.warn('Cached data belongs to different user, clearing cache');
-            localStorage.removeItem(storageKey);
-            throw new Error('Invalid cached data');
-          }
-
-          // Handle both old and new data structures
-          let contacts = [];
-          if (Array.isArray(parsedData)) {
-            // Old format: direct array of contacts
-            contacts = parsedData;
-          } else if (Array.isArray(parsedData.contacts)) {
-            // New format: { contacts: [], lastUpdated: string }
-            contacts = parsedData.contacts;
-          } else {
-            console.warn('Invalid contacts data structure, clearing cache');
-            localStorage.removeItem(storageKey);
-            throw new Error('Invalid contacts data');
-          }
-
-          // Show a non-intrusive toast notification
-          setTimeout(() => {
-            toast.success('Contacts loaded from cache', {
-              duration: 2000,
-              position: 'bottom-right',
-              style: { backgroundColor: '#F4F4FF', color: '#1E1E3F' }
-            });
-          }, 500);
-
-          return {
-            contacts: adaptContacts(contacts),
-            lastUpdated: parsedData.lastUpdated || new Date().toISOString()
-          };
-        } catch (error) {
-          // If there's any error parsing the cache, clear it
-          console.error('Error parsing cached data:', error);
-          localStorage.removeItem(storageKey);
+      // Network first: the server store is the source of truth. localStorage
+      // is only an offline/fast-boot cache, written on every successful fetch.
+      try {
+        const response = await fetch('/api/contacts');
+        if (!response.ok) {
+          throw new Error('Failed to fetch contacts');
         }
+        const data = await response.json();
+        const rawContacts = data.contacts || [];
+        const { lastUpdated } = persistContacts(userEmail, rawContacts);
+        return {
+          contacts: adaptContacts(rawContacts),
+          lastUpdated
+        };
+      } catch (networkError) {
+        const cached = readCachedContacts(userEmail);
+        if (cached) {
+          toast('Offline: showing locally cached contacts', {
+            duration: 3000,
+            position: 'bottom-right',
+            style: { backgroundColor: '#F4F4FF', color: '#1E1E3F' }
+          });
+          return cached;
+        }
+        throw networkError;
       }
-
-      const response = await fetch('/api/contacts');
-      if (!response.ok) {
-        throw new Error('Failed to fetch contacts');
-      }
-
-      const data = await response.json();
-      const rawContacts = data.contacts || [];
-      const { lastUpdated } = persistContacts(session.user.email, rawContacts);
-
-      return {
-        contacts: adaptContacts(rawContacts),
-        lastUpdated
-      };
     },
     {
       enabled: !!session?.user?.email,

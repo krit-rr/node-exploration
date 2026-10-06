@@ -23,7 +23,7 @@ interface ContactTableProps {
     direction: 'asc' | 'desc';
   };
   onSort: (key: keyof Contact | `custom_${string}`) => void;
-  onContactUpdate: (contact: Contact) => Promise<void>;
+  onContactUpdate: (contact: Contact, originalEmail?: string) => Promise<void>;
   showToast: (message: string, type: 'success' | 'error') => void;
   onPageChange: (page: number) => void;
   onPageSizeChange: (size: number) => void;
@@ -492,7 +492,9 @@ export default function ContactTable({
     };
     
     try {
-      await onContactUpdate(updatedContact);
+      // contactId is the row's pre-edit email: the server updates by it, so
+      // editing the email field updates the contact instead of forking it.
+      await onContactUpdate(updatedContact, editingCell.contactId);
       
       // Just return to the same cell, maintaining focus
       setEditingCell(null);
@@ -620,7 +622,7 @@ export default function ContactTable({
         onContactUpdate({
           ...paginatedContacts.find(c => c.email === update.contactId)!,
           [update.field]: update.value
-        })
+        }, update.contactId)
       ));
       showToast('Changes applied', 'success');
     } catch {

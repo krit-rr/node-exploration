@@ -15,25 +15,28 @@ export function isPersonalDomain(domain: string): boolean {
   return PERSONAL_DOMAINS.has(domain.toLowerCase());
 }
 
-function buildPrompt(email: string): string {
-  return `Analyze this email address and determine if it's a personal email or a business email.
+// The prompt receives ONLY the domain: the local part of an email address is
+// attacker-controlled free text and was a prompt-injection vector into the
+// shared cross-user enrichment cache.
+function buildPrompt(domain: string): string {
+  return `Analyze this email domain and determine if it's a personal email provider or a business domain.
 
-For personal emails (like gmail.com, yahoo.com, etc.), return exactly:
+For personal email providers (like gmail.com, yahoo.com, etc.), return exactly:
 Company:
 Industry:
 
-For business emails, return exactly:
+For business domains, return exactly:
 Company: Company Name
 Industry: Industry Name
 
-Email: ${email}
+Domain: ${domain}
 
 Rules:
 1. For personal emails, leave both fields blank (just the labels)
 2. For business emails, provide the actual company name and industry
 3. Do not include any explanatory text
 4. Do not include brackets or placeholder text
-5. If unsure, treat as personal email and leave fields blank
+5. If unsure, treat as a personal email provider and leave fields blank
 6. Do not include the word "Industry" in the company field
 7. Do not include any additional text or formatting`;
 }
@@ -93,7 +96,7 @@ export async function enrichViaAI(email: string): Promise<Enrichment> {
         content:
           'You are a helpful assistant that analyzes email addresses to determine company and industry information. You must respond in the exact format specified, with no additional text or explanations.',
       },
-      { role: 'user', content: buildPrompt(email) },
+      { role: 'user', content: buildPrompt(domain) },
     ],
     temperature: 0,
     max_tokens: 100,
