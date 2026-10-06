@@ -26,7 +26,7 @@ extension. This powers:
 - **Similar contacts** — nearest neighbors of any contact, with no model call
   (`GET /api/contacts/similar?email=a@b.com`)
 
-Setup: run `supabase/migrations/20261005_vector_search.sql` in your Supabase
+Setup: run `supabase/migrations/20261005_vector_search.sql` and `supabase/migrations/20261006_contacts.sql` in your Supabase
 SQL editor, and set `SUPABASE_SERVICE_ROLE_KEY` (see below). Embeddings sync
 automatically (`POST /api/embeddings/sync`) whenever the contacts page loads
 fresh data; only changed contacts are re-embedded.
