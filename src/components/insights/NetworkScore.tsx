@@ -10,7 +10,7 @@ interface Props {
   onViewChange?: (view: 'organize' | 'analyze') => void;
 }
 
-export default function NetworkScore({ contacts, className = '', onViewChange }: Props) {
+export default function NetworkScore({ contacts, onViewChange }: Props) {
   const baseMetrics = calculateNetworkScore(contacts);
   const metrics = getNetworkMetricsExplanation(baseMetrics.metrics);
   

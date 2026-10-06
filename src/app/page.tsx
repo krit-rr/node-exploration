@@ -1,7 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Icon } from '@/components/ui';
 import { motion, AnimatePresence } from 'framer-motion';
 import WaitlistPill from '@/components/WaitlistPill';
 import { ArrowRight } from 'lucide-react';
@@ -10,7 +9,7 @@ const NODE_LAUNCH_MODE = process.env.NEXT_PUBLIC_NODE_LAUNCH_MODE || 'waitlist';
 
 export default function Home() {
   const [scrolled, setScrolled] = useState(false);
-  const [currentFeature, setCurrentFeature] = useState(0);
+  const [, setCurrentFeature] = useState(0);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -425,7 +424,7 @@ const progressVariants = {
 function GuidedDemoWalkthrough() {
   const [step, setStep] = React.useState(0);
   const [completed, setCompleted] = React.useState(Array(demoSteps.length).fill(false));
-  const [direction, setDirection] = React.useState<'forward' | 'backward'>('forward');
+  const [, setDirection] = React.useState<'forward' | 'backward'>('forward');
 
   const next = () => {
     if (step === demoSteps.length - 1) {

@@ -1,15 +1,10 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Contact } from '@/types';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Switch } from '@headlessui/react';
 import { analyzeContact, SpamDetectionResult } from '../../utils/spamDetection';
 import CleanupStep1 from './CleanupStep1';
 import CleanupStep2 from './CleanupStep2';
 import CleanupStep3 from './CleanupStep3';
-
-interface ContactWithSpam extends Contact {
-  isSpam?: boolean;
-}
 
 interface InboxCleanupAssistantProps {
   contacts: Contact[];
@@ -167,69 +162,12 @@ export const EMAIL_PATTERNS = {
 export default function InboxCleanupAssistant({ 
   contacts, 
   onMarkAsSpam, 
-  onUndo,
-  onExcludeFromAnalytics,
   onClose
 }: InboxCleanupAssistantProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [flaggedContacts, setFlaggedContacts] = useState<FlaggedContact[]>([]);
-  const [selectedContacts, setSelectedContacts] = useState<Set<string>>(new Set());
-  const [recentActions, setRecentActions] = useState<Array<{
-    email: string;
-    action: 'spam' | 'keep';
-    timestamp: number;
-  }>>([]);
-  const [excludeFromAnalytics, setExcludeFromAnalytics] = useState(true);
-  const [showUndo, setShowUndo] = useState(false);
-  const [lastMarked, setLastMarked] = useState<string>('');
   const [spamContacts, setSpamContacts] = useState<Set<string>>(new Set());
   const [categorizedContacts, setCategorizedContacts] = useState<ContactCategory[]>([]);
-  const [spamEmails, setSpamEmails] = useState<Set<string>>(new Set());
-
-  // Memoize key functions to prevent dependency chain issues
-  const handleSetExcludeFromAnalytics = useCallback((value: boolean) => {
-    setExcludeFromAnalytics(value);
-    onExcludeFromAnalytics(value);
-  }, [onExcludeFromAnalytics]);
-
-  const handleMarkAsSpam = useCallback((emails: string[]) => {
-    if (emails.length === 0) return;
-    
-    setSpamEmails(prev => {
-      const newSet = new Set(prev);
-      emails.forEach(email => newSet.add(email));
-      return newSet;
-    });
-    
-    onMarkAsSpam(emails);
-    
-    if (emails.length === 1) {
-      setLastMarked(emails[0]);
-      setShowUndo(true);
-      // Auto-hide undo message after 5 seconds
-      setTimeout(() => setShowUndo(false), 5000);
-    }
-  }, [onMarkAsSpam]);
-
-  const handleUndo = useCallback((email: string) => {
-    setSpamEmails(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(email);
-      return newSet;
-    });
-    
-    onUndo(email);
-    setShowUndo(false);
-  }, [onUndo]);
-
-  // Memoize the filtered contacts to prevent infinite loops
-  const contactsToProcess = useMemo(() => 
-    contacts.filter(contact => 
-      !(contact as ContactWithSpam).isSpam && 
-      !spamEmails.has(contact.email)
-    ), 
-    [contacts, spamEmails]
-  );
 
   // Memoize the flagged contacts calculation to prevent infinite loops
   const analyzedContacts = useMemo(() => {

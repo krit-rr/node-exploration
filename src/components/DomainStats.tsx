@@ -95,7 +95,7 @@ const DomainStats: React.FC<DomainStatsProps> = ({
         
         {/* Always visible: Top domains as pills */}
         <div className="flex flex-wrap items-center gap-2 py-1">
-          {domainData.slice(0, 5).map(({ domain, count, percentage }) => (
+          {domainData.slice(0, 5).map(({ domain, percentage }) => (
             <button
               key={domain}
               onClick={() => onDomainSelect?.(domain)}

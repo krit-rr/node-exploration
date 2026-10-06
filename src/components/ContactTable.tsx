@@ -1,7 +1,7 @@
 import { Contact } from '@/types';
 import { useState, useRef, useEffect } from 'react';
 import { format, isValid, parseISO } from 'date-fns';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useUndo } from '../hooks/useUndo';
 import Pagination from './Pagination';
@@ -55,7 +55,7 @@ interface EditableCellProps {
 
 const EditableCell = ({ value, onChange, onBlur, onKeyDown, type = 'text' }: EditableCellProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [isFocused, setIsFocused] = useState(false);
+  const [, setIsFocused] = useState(false);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -75,7 +75,7 @@ const EditableCell = ({ value, onChange, onBlur, onKeyDown, type = 'text' }: Edi
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onBlur={(e) => {
+        onBlur={() => {
           setIsFocused(false);
           onBlur();
         }}
@@ -100,34 +100,8 @@ interface TableState {
   copiedCells: Map<string, any>;
 }
 
-// ProTip component aligned with design system
-function ProTipBadge({ visible, onDismiss }: { visible: boolean; onDismiss: () => void }) {
-  if (!visible) return null;
-  
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 5 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
-      className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#F4F4FF] border border-[#1E1E3F]/10 rounded-full text-xs text-[#1E1E3F] shadow-sm"
-    >
-      <span className="font-medium">Pro Tip</span>
-      <span>Use keyboard to navigate</span>
-      <button 
-        onClick={onDismiss}
-        className="ml-1 p-0.5 hover:bg-[#1E1E3F]/10 rounded-full transition-colors duration-200"
-        aria-label="Dismiss pro tip"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-        </svg>
-      </button>
-    </motion.div>
-  );
-}
-
 // ShortcutsGuide component aligned with design system
-function ShortcutsGuide({ visible, isKeyboardActive }: { visible: boolean; isKeyboardActive: boolean }) {
+function ShortcutsGuide({ visible }: { visible: boolean; isKeyboardActive: boolean }) {
   if (!visible) return null;
 
   return (
@@ -168,48 +142,9 @@ function ShortcutsGuide({ visible, isKeyboardActive }: { visible: boolean; isKey
   );
 }
 
-const PageSizeControl = ({ 
-  pageSize, 
-  onPageSizeChange,
-  showKeyboardTip = true,
-  onDismissTip
-}: { 
-  pageSize: number;
-  onPageSizeChange: (size: number) => void;
-  showKeyboardTip?: boolean;
-  onDismissTip: () => void;
-}) => {
-  return (
-    <div className="flex items-center gap-4">
-      <div className="flex items-center">
-        <span className="text-sm text-gray-500 mr-2">Items per page</span>
-        <select
-          className="block w-16 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-[#1E1E3F]"
-          value={pageSize}
-          onChange={(e) => onPageSizeChange(Number(e.target.value))}
-          aria-label="Items per page"
-        >
-          {[10, 25, 50, 100].map((size) => (
-            <option key={size} value={size}>
-              {size}
-            </option>
-          ))}
-        </select>
-      </div>
-      
-      {showKeyboardTip && (
-        <AnimatePresence>
-          <ProTipBadge visible={showKeyboardTip} onDismiss={onDismissTip} />
-        </AnimatePresence>
-      )}
-    </div>
-  );
-};
-
 export default function ContactTable({
   contacts,
   columns,
-  onContactClick,
   currentPage,
   itemsPerPage,
   className,
@@ -236,8 +171,7 @@ export default function ContactTable({
     value: string;
   } | null>(null);
   
-  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
-  const [lastSelectedRow, setLastSelectedRow] = useState<string | null>(null);
+  const [selectedRows] = useState<Set<string>>(new Set());
   const [focusedCell, setFocusedCell] = useState<{
     contactId: string;
     field: string;
@@ -248,7 +182,7 @@ export default function ContactTable({
     copiedCells: new Map()
   });
   
-  const { past, present, future, undo, redo, saveState } = useUndo(contacts);
+  const { undo, redo } = useUndo(contacts);
 
   // Hotkey setup for common actions
   useHotkeys('ctrl+c', () => handleCopy(), { enableOnFormTags: true });
@@ -321,13 +255,6 @@ export default function ContactTable({
       field,
       value: editValue
     });
-  };
-
-  const handleCellKeyDown = (e: React.KeyboardEvent, contact: Contact, field: string) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleDoubleClick(contact, field);
-    }
   };
 
   const handleTableKeyDown = (e: React.KeyboardEvent, contact: Contact, field: string) => {
@@ -574,35 +501,9 @@ export default function ContactTable({
         field: editingCell.field
       });
       tableRef.current?.focus();
-    } catch (error) {
+    } catch {
       showToast('Failed to update contact', 'error');
     }
-  };
-
-  const handleRowClick = (e: React.MouseEvent, contact: Contact) => {
-    if (e.shiftKey && lastSelectedRow) {
-      // Range selection
-      const startIndex = paginatedContacts.findIndex(c => c.email === lastSelectedRow);
-      const endIndex = paginatedContacts.findIndex(c => c.email === contact.email);
-      const range = paginatedContacts.slice(
-        Math.min(startIndex, endIndex),
-        Math.max(startIndex, endIndex) + 1
-      );
-      setSelectedRows(new Set([...selectedRows, ...range.map(c => c.email)]));
-    } else if (e.ctrlKey || e.metaKey) {
-      // Toggle selection
-      const newSelected = new Set(selectedRows);
-      if (newSelected.has(contact.email)) {
-        newSelected.delete(contact.email);
-      } else {
-        newSelected.add(contact.email);
-      }
-      setSelectedRows(newSelected);
-    } else {
-      // Single selection
-      setSelectedRows(new Set([contact.email]));
-    }
-    setLastSelectedRow(contact.email);
   };
 
   // Calculate pagination
@@ -722,7 +623,7 @@ export default function ContactTable({
         })
       ));
       showToast('Changes applied', 'success');
-    } catch (error) {
+    } catch {
       showToast('Failed to apply changes', 'error');
     }
   };
@@ -744,13 +645,6 @@ export default function ContactTable({
   // Detect mouse interaction to toggle keyboard mode off
   const handleMouseInteraction = () => {
     setIsKeyboardActive(false);
-  };
-
-  // Add bulk copy handler
-  const handleBulkCopyEmails = () => {
-    const emails = paginatedContacts.map(contact => contact.email).join(', ');
-    navigator.clipboard.writeText(emails);
-    showToast('All emails copied to clipboard', 'success');
   };
 
   return (

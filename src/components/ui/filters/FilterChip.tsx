@@ -3,7 +3,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Icon, IconName } from '../icons/Icon';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { X, Pencil, Check } from "lucide-react";
+import { X, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -46,7 +46,6 @@ export const FilterChip: React.FC<FilterChipProps> = ({
   className = '',
   disabled = false,
   badge,
-  color,
   size = 'md',
   tooltipContent,
   showSelectedIcon = true,

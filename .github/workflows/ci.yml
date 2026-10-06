@@ -28,7 +28,10 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Lint
-        run: npm run lint -- --max-warnings=1000
+        run: npm run lint -- --max-warnings=20
+
+      - name: Dead files
+        run: npx knip --include files
 
       # No secrets needed: all env-dependent clients resolve lazily at request time.
       - name: Build
