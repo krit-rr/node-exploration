@@ -1,20 +1,20 @@
-# ntwrk
+# node-exploration
 
 A modern professional network management platform that helps you organize and maintain your relationships effectively.
 
 ## Features
 
-### 🔄 Automatic Contact Import
+### Automatic Contact Import
 Connect your email and instantly import your professional network. Works with Gmail, with Outlook support coming soon.
 
-### 👥 Smart Groups
+### Smart Groups
 Automatically organize your contacts based on:
 - Organizations and domains
 - Interaction frequency
 - Communication patterns
 - Custom groupings
 
-### 🔎 Semantic Search (vector database)
+### Semantic Search (vector database)
 Contacts and recent email subjects/snippets are embedded (OpenAI
 `text-embedding-3-small`) and stored in Supabase Postgres with the pgvector
 extension. This powers:
