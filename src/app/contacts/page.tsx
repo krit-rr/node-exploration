@@ -334,6 +334,31 @@ function ContactsContent() {
     }).catch(() => {});
   }, [session?.user?.email, contacts, contactsData.lastUpdated]);
 
+  // Fire out-of-band enrichment for stored contacts missing a company, then
+  // refetch so the new company/industry values appear. Guarded so one page
+  // load triggers at most one run.
+  const enrichTriggeredRef = useRef(false);
+  const triggerEnrichment = useCallback(() => {
+    if (enrichTriggeredRef.current || !session?.user?.email) return;
+    enrichTriggeredRef.current = true;
+    fetch('/api/contacts/enrich', { method: 'POST' })
+      .then(res => res.ok ? res.json() : null)
+      .then(result => {
+        if (result && result.enriched > 0) {
+          queryClient.invalidateQueries({
+            queryKey: ['sentRecipients', session.user?.email],
+            refetchType: 'active'
+          });
+        }
+      })
+      .catch(() => {});
+  }, [queryClient, session?.user?.email]);
+
+  useEffect(() => {
+    if (contacts.length === 0) return;
+    if (contacts.some(c => !c.company)) triggerEnrichment();
+  }, [contacts, triggerEnrichment]);
+
   // Force refresh = re-pull from the mail provider and merge into the
   // server store. Edits and imports survive: this no longer destroys data.
   const forceRefresh = useCallback(async () => {
@@ -348,11 +373,13 @@ function ContactsContent() {
     try {
       const data = await syncContacts(email);
       queryClient.setQueryData(['sentRecipients', email], data);
+      enrichTriggeredRef.current = false;
+      triggerEnrichment();
     } catch (error) {
       console.error('Mailbox sync failed:', error);
       toast.error('Sync failed. Please try again.');
     }
-  }, [queryClient, session?.user?.email]);
+  }, [queryClient, session?.user?.email, triggerEnrichment]);
 
   // Cleanup-assistant visibility: one user-scoped sessionStorage record
   // ({ shownAt, dismissedAt }) replaces the four overlapping localStorage
@@ -403,9 +430,25 @@ function ContactsContent() {
   }, [session?.user?.email]);
 
   // Filter out spam contacts for display
-  const displayContacts = contacts?.filter((contact: Contact) => 
-    !(contact as ContactWithSpam).isSpam
-  ) || [];
+  const displayContacts = useMemo(
+    () => contacts?.filter((contact: Contact) => !(contact as ContactWithSpam).isSpam) || [],
+    [contacts]
+  );
+
+  // Parse each contact's lastContacted once, not twice per sort comparison.
+  const visibleColumns = useMemo(
+    () => availableColumnsList.filter(col => activeColumns.includes(col.key)),
+    [availableColumnsList, activeColumns]
+  );
+
+  const lastContactedTimes = useMemo(() => {
+    const times = new Map<string, number>();
+    for (const c of displayContacts) {
+      const t = c.lastContacted ? new Date(c.lastContacted).getTime() : NaN;
+      times.set(c.email, isNaN(t) ? 0 : t);
+    }
+    return times;
+  }, [displayContacts]);
 
   const availableColumns = useMemo(() => [
     {
@@ -570,7 +613,7 @@ function ContactsContent() {
   }, [extractDomain]);
 
   // Modified getFilteredContacts to handle domain grouping
-  const getFilteredContacts = (_contactsParam: Contact[], searchTerm: string, activeFilter: FilterType) => {
+  const getFilteredContacts = useCallback((searchTerm: string, activeFilter: FilterType) => {
     let filteredResults = [...displayContacts];
     
     // Apply search filter
@@ -640,9 +683,9 @@ function ContactsContent() {
           const bValue = b[sortConfig.key as keyof Contact];
           
           if (sortConfig.key === 'lastContacted') {
-            return sortConfig.direction === 'asc'
-              ? new Date(aValue as string).getTime() - new Date(bValue as string).getTime()
-              : new Date(bValue as string).getTime() - new Date(aValue as string).getTime();
+            const aTime = lastContactedTimes.get(a.email) ?? 0;
+            const bTime = lastContactedTimes.get(b.email) ?? 0;
+            return sortConfig.direction === 'asc' ? aTime - bTime : bTime - aTime;
           }
           
           return sortConfig.direction === 'asc'
@@ -655,9 +698,14 @@ function ContactsContent() {
     }
     
     return filteredResults;
-  };
-  
-  const keywordFilteredContacts = getFilteredContacts(contacts, search, filter);
+  }, [displayContacts, groups, sortConfig, lastContactedTimes]);
+
+  // Memoized: typing in the search box re-renders the page per keystroke,
+  // and this used to re-filter and re-sort the full list every render.
+  const keywordFilteredContacts = useMemo(
+    () => getFilteredContacts(search, filter),
+    [getFilteredContacts, search, filter]
+  );
 
   // When the literal text filter finds nothing, fall back to semantic search
   // over the embedded contacts (e.g. "investors I met in healthcare").
@@ -1354,7 +1402,7 @@ function ContactsContent() {
                       onContactUpdate={handleContactUpdate}
                       currentPage={1}
                       itemsPerPage={domainContacts.length}
-                      columns={availableColumnsList.filter(col => activeColumns.includes(col.key))}
+                      columns={visibleColumns}
                       className="divide-y divide-gray-100"
                       sortConfig={sortConfig}
                       onSort={handleSort}
@@ -1375,7 +1423,7 @@ function ContactsContent() {
                 onContactUpdate={handleContactUpdate}
                 currentPage={currentPage}
                 itemsPerPage={itemsPerPage}
-                columns={availableColumnsList.filter(col => activeColumns.includes(col.key))}
+                columns={visibleColumns}
                 className="divide-y divide-gray-100"
                 sortConfig={sortConfig}
                 onSort={handleSort}

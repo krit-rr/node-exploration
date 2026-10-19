@@ -5,7 +5,7 @@ import { signOutAndPurge } from '@/lib/clientSignOut';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';
-import { ReactNode, useState, useEffect } from 'react';
+import { ReactNode } from 'react';
 
 const navigation = [
   { name: 'Overview', href: '/overview', icon: 'Home' },
@@ -120,14 +120,8 @@ interface AppLayoutProps {
 
 export default function AppLayout({ children }: AppLayoutProps) {
   const { data: session, status } = useSession();
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    const loadingTimer = setTimeout(() => setIsLoading(false), 300);
-    return () => clearTimeout(loadingTimer);
-  }, []);
-
-  if (status === 'loading' || isLoading) {
+  if (status === 'loading') {
     return (
       <div className="flex min-h-screen bg-[#FAFAFA] items-center justify-center">
         <div className="animate-pulse flex flex-col items-center">

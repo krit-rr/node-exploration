@@ -1,8 +1,8 @@
+import { useMemo } from 'react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid } from 'recharts';
 import { format, subDays } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Contact } from '@/types';
-import { adaptContact } from '@/utils/contactAdapter';
 
 interface RelationshipTimelineProps {
   contacts: Contact[];
@@ -12,72 +12,44 @@ interface RelationshipTimelineProps {
 }
 
 export default function RelationshipTimeline({ contacts, timeframe, isExpanded, onToggleExpand }: RelationshipTimelineProps) {
-  const getTimelineEvents = () => {
+  // One pass over interactions, bucketed by UTC day, memoized on inputs.
+  // (The previous version rescanned every contact for every day — O(days x
+  // contacts x dates) per render — and overwrote the unique-contact count
+  // with whichever contact it processed last, so "Active Contacts" was
+  // always 0 or 1.)
+  const timelineData = useMemo(() => {
     const days = timeframe === '30d' ? 30 : timeframe === '90d' ? 90 : 365;
-    const data = [];
-    
-    // Create array of dates
+    const utcDayKey = (d: Date) =>
+      new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString();
+
+    const buckets = new Map<string, { sent: number; contacts: Set<string> }>();
+    const order: string[] = [];
     for (let i = days; i >= 0; i--) {
-      const date = subDays(new Date(), i);
-      // Set to start of day in UTC
-      const utcDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-      const dateStr = utcDate.toISOString();
-      
-      // Count interactions for this date
-      const dayInteractions = contacts.reduce((acc, contact) => {
-        const adaptedContact = adaptContact(contact);
-        const dayContacts = new Set();
-        
-        // First check for sentDates if available
-        if (contact.sentDates && contact.sentDates.length > 0) {
-          contact.sentDates.forEach(sentDate => {
-            const interactionDate = new Date(sentDate);
-            // Convert interaction date to UTC and set to start of day
-            const utcInteractionDate = new Date(Date.UTC(
-              interactionDate.getUTCFullYear(),
-              interactionDate.getUTCMonth(),
-              interactionDate.getUTCDate()
-            ));
-            
-            if (utcInteractionDate.getTime() === utcDate.getTime()) {
-              acc.sent++;
-              dayContacts.add(contact.email);
-            }
-          });
-        } 
-        // Fall back to interactions for backward compatibility
-        else if (adaptedContact.interactions) {
-          adaptedContact.interactions.forEach(interaction => {
-            const interactionDate = new Date(interaction.date);
-            // Convert interaction date to UTC and set to start of day
-            const utcInteractionDate = new Date(Date.UTC(
-              interactionDate.getUTCFullYear(),
-              interactionDate.getUTCMonth(),
-              interactionDate.getUTCDate()
-            ));
-            
-            if (utcInteractionDate.getTime() === utcDate.getTime() && interaction.type === 'sent') {
-              acc.sent++;
-              dayContacts.add(contact.email);
-            }
-          });
-        }
-        
-        acc.uniqueContacts = dayContacts.size;
-        return acc;
-      }, { sent: 0, uniqueContacts: 0 });
-
-      data.push({
-        date: dateStr,
-        sent: dayInteractions.sent,
-        uniqueContacts: dayInteractions.uniqueContacts
-      });
+      const key = utcDayKey(subDays(new Date(), i));
+      buckets.set(key, { sent: 0, contacts: new Set() });
+      order.push(key);
     }
-    
-    return data;
-  };
 
-  const timelineData = getTimelineEvents();
+    for (const contact of contacts) {
+      const dates = contact.interactions?.length
+        ? contact.interactions.filter(i => i.type === 'sent').map(i => i.date)
+        : contact.sentDates ?? [];
+      for (const date of dates) {
+        const parsed = new Date(date);
+        if (isNaN(parsed.getTime())) continue;
+        const bucket = buckets.get(utcDayKey(parsed));
+        if (!bucket) continue; // outside the selected timeframe
+        bucket.sent++;
+        bucket.contacts.add(contact.email);
+      }
+    }
+
+    return order.map(date => ({
+      date,
+      sent: buckets.get(date)!.sent,
+      uniqueContacts: buckets.get(date)!.contacts.size,
+    }));
+  }, [contacts, timeframe]);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {

@@ -221,6 +221,51 @@ export async function updateContact(
   return { available: true, contact: rowToContact(data[0] as ContactRow) };
 }
 
+/** Stored contacts that have no company yet (enrichment candidates). */
+export async function listUnenriched(
+  owner: string,
+  max: number
+): Promise<{ available: boolean; contacts: Contact[] }> {
+  const { data, error } = await getSupabaseAdmin()
+    .from('contacts')
+    .select('*')
+    .eq('owner_email', owner)
+    .is('company', null)
+    .limit(max);
+  if (error) {
+    if (isMissingStore(error)) return { available: false, contacts: [] };
+    throw new Error(`Failed to list unenriched contacts: ${error.message}`);
+  }
+  return { available: true, contacts: (data as ContactRow[]).map(rowToContact) };
+}
+
+/** Write enrichment results back onto stored rows. */
+export async function applyEnrichment(
+  owner: string,
+  results: { email: string; company: string | null; industry: string | null }[]
+): Promise<{ available: boolean; updated: number }> {
+  let updated = 0;
+  for (const result of results) {
+    if (!result.company && !result.industry) continue;
+    const { error } = await getSupabaseAdmin()
+      .from('contacts')
+      .update({
+        company: result.company,
+        industry: result.industry,
+        enriched_by: 'ai',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('owner_email', owner)
+      .eq('email', result.email.toLowerCase());
+    if (error) {
+      if (isMissingStore(error)) return { available: false, updated };
+      throw new Error(`Failed to apply enrichment: ${error.message}`);
+    }
+    updated++;
+  }
+  return { available: true, updated };
+}
+
 /** Set/clear spam flags for a batch of emails. */
 export async function setSpamFlags(
   owner: string,

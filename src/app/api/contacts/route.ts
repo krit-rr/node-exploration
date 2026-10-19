@@ -82,17 +82,23 @@ export async function GET(request: NextRequest) {
     }
 
     const providerContacts = await fetchProviderContacts(provider, token.accessToken);
-    const enrichedContacts = await enrichBatchViaAI(providerContacts, {
-      delayMs: 200,
-      maxRetries: 2,
-      cacheByDomain: true,
-    });
 
-    let contacts: Contact[] = enrichedContacts;
+    // With a store, enrichment runs out-of-band (POST /api/contacts/enrich,
+    // triggered by the client) so a sync isn't blocked on OpenAI; without
+    // one there is nowhere to persist results, so enrich inline as before.
+    const contactsToMerge = stored.available
+      ? providerContacts
+      : await enrichBatchViaAI(providerContacts, {
+          delayMs: 200,
+          maxRetries: 2,
+          cacheByDomain: true,
+        });
+
+    let contacts: Contact[] = contactsToMerge;
     let persisted = false;
     if (stored.available) {
       try {
-        const merge = await mergeProviderContacts(owner, provider, enrichedContacts);
+        const merge = await mergeProviderContacts(owner, provider, contactsToMerge);
         if (merge.available) {
           const merged = await listContacts(owner);
           if (merged.available) {

@@ -52,11 +52,11 @@ export default function NetworkScore({ contacts, onViewChange }: Props) {
           />
           
           <MetricCard
-            value={`${metrics.avgResponseTime.hours}h`}
-            trend="neutral"
-            label="Avg Response Time"
-            explanation={metrics.avgResponseTime.explanation}
-            suggestion="Aim to respond within 24 hours"
+            value={`${metrics.weeklyActivity.percent > 0 ? '+' : ''}${metrics.weeklyActivity.percent}%`}
+            trend={metrics.weeklyActivity.trend === 'up' ? 'up' : metrics.weeklyActivity.trend === 'down' ? 'down' : 'neutral'}
+            label="Sent This Week"
+            explanation={metrics.weeklyActivity.explanation}
+            suggestion="Keep a steady weekly outreach rhythm"
           />
           
           <MetricCard

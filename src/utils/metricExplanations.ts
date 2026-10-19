@@ -7,8 +7,9 @@ interface NetworkMetrics {
     count: number;
     explanation: string;
   };
-  avgResponseTime: {
-    hours: number;
+  weeklyActivity: {
+    percent: number;
+    trend: 'up' | 'down' | 'stable';
     explanation: string;
   };
   networkReach: {
@@ -41,19 +42,20 @@ interface RelationshipHealth {
 export const getNetworkMetricsExplanation = (metrics: any): NetworkMetrics => ({
   score: {
     value: metrics.score,
-    explanation: "Your overall network health score (0-100). Based on how frequently you interact, response times, and relationship strength."
+    explanation: "Your network health score (0-100), computed from how much of your network you've emailed recently: 45% weight on the last 30 days, 35% on the last 90, plus a small size factor."
   },
   activeRelationships: {
     count: metrics.activeRelationships,
-    explanation: "Contacts you've interacted with in the last 30 days."
+    explanation: "Contacts you've emailed in the last 30 days."
   },
-  avgResponseTime: {
-    hours: metrics.avgResponseTime,
-    explanation: "Average time it takes to respond to messages."
+  weeklyActivity: {
+    percent: metrics.weekOverWeek,
+    trend: metrics.weekTrend,
+    explanation: "Emails you sent in the last 7 days compared with the 7 days before, from your recent sent history."
   },
   networkReach: {
     value: metrics.networkReach,
-    explanation: "Total number of people in your network."
+    explanation: "Total number of contacts in your network."
   }
 });
 

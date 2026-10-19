@@ -1,5 +1,5 @@
 import { Contact } from "@/types";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import GroupMembers from '@/components/insights/GroupMembers';
 import { adaptContact } from '@/utils/contactAdapter';
 
@@ -25,7 +25,7 @@ export default function SmartInsights({ contacts, onGroupCreate }: SmartInsights
     return contacts.map(contact => adaptContact(contact));
   }, [contacts]);
 
-  const generateInsights = () => {
+  const generateInsights = useCallback(() => {
     const now = new Date();
     
     interface DomainGroup {
@@ -176,9 +176,9 @@ export default function SmartInsights({ contacts, onGroupCreate }: SmartInsights
       frequencyGroups,
       noReplyGroups
     };
-  };
+  }, [adaptedContacts]);
 
-  const insights = generateInsights();
+  const insights = useMemo(() => generateInsights(), [generateInsights]);
 
   return (
     <div className="space-y-8">
