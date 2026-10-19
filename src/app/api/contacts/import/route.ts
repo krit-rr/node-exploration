@@ -63,8 +63,9 @@ export async function POST(
       name: contact.name,
       email: contact.email.toLowerCase(),
       company: contact.company || '',
-      lastContacted: contact.lastContacted || new Date().toISOString(),
-      lastContactedRaw: contact.lastContacted || new Date().toISOString(),
+      industry: contact.industry || undefined,
+      lastContacted: contact.lastContacted || contact.lastEmailed || new Date().toISOString(),
+      lastContactedRaw: contact.lastContacted || contact.lastEmailed || new Date().toISOString(),
       importedAt: new Date().toISOString(),
       source: 'csv_import',
       customFields: contact.customFields || [],
@@ -100,9 +101,6 @@ export async function POST(
     return NextResponse.json(enrichedContacts, { status: 200 });
   } catch (error: any) {
     console.error('Error importing contacts:', error);
-    return NextResponse.json({ 
-      error: 'Failed to import contacts',
-      details: error.message 
-    }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to import contacts' }, { status: 500 });
   }
 } 

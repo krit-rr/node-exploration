@@ -1,5 +1,5 @@
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Dialog } from '@headlessui/react';
 
 interface OnboardingPromptProps {
   onStartCleanup: () => void;
@@ -8,19 +8,10 @@ interface OnboardingPromptProps {
 
 export default function OnboardingPrompt({ onStartCleanup, onSkip }: OnboardingPromptProps) {
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-      >
-        <motion.div
-          initial={{ y: -50 }}
-          animate={{ y: 0 }}
-          exit={{ y: 50 }}
-          className="bg-white rounded-xl shadow-lg p-6 max-w-md w-full text-center"
-        >
+    <Dialog open onClose={onSkip} className="relative z-50">
+      <div className="fixed inset-0 bg-black bg-opacity-50" aria-hidden="true" />
+      <div className="fixed inset-0 flex items-center justify-center p-4">
+        <Dialog.Panel className="bg-white rounded-xl shadow-lg p-6 max-w-md w-full text-center">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">
             Ready to Declutter Your Inbox?
           </h2>
@@ -41,8 +32,8 @@ export default function OnboardingPrompt({ onStartCleanup, onSkip }: OnboardingP
               Skip for Now
             </button>
           </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+        </Dialog.Panel>
+      </div>
+    </Dialog>
   );
 }

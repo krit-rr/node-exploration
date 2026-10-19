@@ -4,6 +4,7 @@ import { useState } from 'react';
 import confetti from 'canvas-confetti';
 import { Contact } from '@/types';
 import { format, parseISO } from 'date-fns';
+import { toCsv } from '@/utils/csv';
 
 interface GroupExportModalProps {
   isOpen: boolean;
@@ -147,8 +148,7 @@ export default function GroupExportModal({ isOpen, onClose, groupName, contacts 
         `${Math.round(contact.velocity.interactionMetrics.responseRate * 100)}%` : 'N/A'
     ]);
 
-    const csvData = [headers, ...data].map(row => row.join(',')).join('\n');
-    return csvData;
+    return toCsv(headers, data);
   };
 
   return (
