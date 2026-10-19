@@ -3,7 +3,6 @@ import { useState, useRef, useEffect } from 'react';
 import { format, isValid, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
 import { useHotkeys } from 'react-hotkeys-hook';
-import { useUndo } from '../hooks/useUndo';
 import Pagination from './Pagination';
 
 interface ContactTableProps {
@@ -129,14 +128,6 @@ function ShortcutsGuide({ visible }: { visible: boolean; isKeyboardActive: boole
           <kbd className="px-2 py-1 bg-gray-100 rounded text-xs">Shift + Space</kbd>
           <span>Select row</span>
         </div>
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          <kbd className="px-2 py-1 bg-gray-100 rounded text-xs">⌘/Ctrl + Z</kbd>
-          <span>Undo</span>
-        </div>
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          <kbd className="px-2 py-1 bg-gray-100 rounded text-xs">⌘/Ctrl + Y</kbd>
-          <span>Redo</span>
-        </div>
       </div>
     </motion.div>
   );
@@ -182,14 +173,13 @@ export default function ContactTable({
     copiedCells: new Map()
   });
   
-  const { undo, redo } = useUndo(contacts);
 
   // Hotkey setup for common actions
-  useHotkeys('ctrl+c', () => handleCopy(), { enableOnFormTags: true });
-  useHotkeys('ctrl+v', () => handlePaste(), { enableOnFormTags: true });
-  useHotkeys('ctrl+z', () => undo(), { enableOnFormTags: true });
-  useHotkeys('ctrl+y', () => redo(), { enableOnFormTags: true });
-  useHotkeys('shift+space', () => handleSelectRow(), { enableOnFormTags: true });
+  // enableOnFormTags deliberately off: these must not hijack copy/paste or
+  // typing inside the search box and edit inputs.
+  useHotkeys('ctrl+c', () => handleCopy());
+  useHotkeys('ctrl+v', () => handlePaste());
+  useHotkeys('shift+space', () => handleSelectRow());
   
   // Add email copy shortcut
   useHotkeys('ctrl+e', () => {
@@ -600,21 +590,26 @@ export default function ContactTable({
       }
     });
     setState(prev => ({ ...prev, copiedCells: newCopiedCells }));
+
+    // Actually write to the system clipboard (the toast used to lie).
+    const text = Array.from(newCopiedCells.values()).map(v => String(v ?? '')).join('\n');
+    if (text) {
+      navigator.clipboard?.writeText(text).catch(() => {});
+    }
     showToast('Copied to clipboard', 'success');
   };
 
   const handlePaste = async () => {
     if (state.copiedCells.size === 0) return;
     
-    const updates = Array.from(state.selectedCells).map(cellId => {
-      const [contactId, field] = cellId.split(':');
-      const value = state.copiedCells.values().next().value;
-      return {
-        contactId,
-        field,
-        value
-      };
-    });
+    const updates = Array.from(state.selectedCells)
+      .map(cellId => {
+        const [contactId, field] = cellId.split(':');
+        const value = state.copiedCells.values().next().value;
+        return { contactId, field, value };
+      })
+      // Never paste over the email field: it is the contact's identity key.
+      .filter(update => update.field !== 'email');
 
     try {
       // Batch update all changes
@@ -742,13 +737,10 @@ export default function ContactTable({
           )}
           <tbody>
             {paginatedContacts.map((contact) => (
-              <motion.tr
+              <tr
                 key={contact.email}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                whileHover={{ backgroundColor: 'rgba(244, 244, 255, 0.3)' }}
                 className={`
-                  transition-colors duration-150 min-h-[44px]
+                  transition-colors duration-150 min-h-[44px] hover:bg-[#F4F4FF]/30
                   ${selectedRows.has(contact.email) ? 'bg-[#F4F4FF]/50' : ''}
                 `}
               >
@@ -797,7 +789,7 @@ export default function ContactTable({
                     )}
                   </td>
                 ))}
-              </motion.tr>
+              </tr>
             ))}
           </tbody>
         </table>

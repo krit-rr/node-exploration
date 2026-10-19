@@ -1,4 +1,5 @@
 import { gmail, auth } from '@googleapis/gmail';
+import pLimit from 'p-limit';
 import {
   aggregateContactsByLatestInteraction,
   isValidDate,
@@ -57,8 +58,12 @@ export class GmailClient {
       maxResults: limit
     });
 
+    // Bounded concurrency: 100 simultaneous gets is a 500-quota-unit burst
+    // against Gmail's 250 units/sec per-user limit, and one 429 used to sink
+    // the whole Promise.all.
+    const gate = pLimit(10);
     const messages = await Promise.all(
-      (response.data.messages || []).map(async (message): Promise<SentMessage | null> => {
+      (response.data.messages || []).map((message) => gate(async (): Promise<SentMessage | null> => {
         const details = await client.users.messages.get({
           userId: 'me',
           id: message.id!,
@@ -88,7 +93,7 @@ export class GmailClient {
           // metadata format, so capturing it costs no extra API call.
           snippet: details.data.snippet || undefined
         };
-      })
+      }))
     );
 
     return messages.filter((msg): msg is SentMessage => msg !== null);
