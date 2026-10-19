@@ -25,13 +25,13 @@ jobs:
       - run: npm ci
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
       - name: Lint
         run: npm run lint -- --max-warnings=20
 
       - name: Dead files
-        run: npx knip --include files
+        run: npm run knip
 
       # No secrets needed: all env-dependent clients resolve lazily at request time.
       - name: Build

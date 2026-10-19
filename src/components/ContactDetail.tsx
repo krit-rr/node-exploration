@@ -1,7 +1,8 @@
 import { Contact } from '@/types';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { format } from 'date-fns';
+import { Dialog } from '@headlessui/react';
+import { safeFormatDate } from '@/utils/dates';
 
 interface CustomField {
   id: string;
@@ -98,22 +99,10 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn }:
   };
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50"
-        onClick={onClose}
-      >
-        <motion.div
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.9, opacity: 0 }}
-          transition={{ type: "spring", damping: 25, stiffness: 400 }}
-          className="bg-white rounded-2xl p-8 w-full max-w-2xl shadow-2xl"
-          onClick={e => e.stopPropagation()}
-        >
+    <Dialog open onClose={onClose} className="relative z-50">
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
+      <div className="fixed inset-0 flex items-center justify-center p-4">
+        <Dialog.Panel className="bg-white rounded-2xl p-8 w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-8">
             <motion.h2 
               initial={{ x: -20, opacity: 0 }}
@@ -126,6 +115,7 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn }:
               whileHover={{ rotate: 90 }}
               transition={{ type: "spring", stiffness: 300 }}
               onClick={onClose}
+              aria-label="Close contact details"
               className="text-gray-400 hover:text-gray-600 transition-colors"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -200,7 +190,7 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn }:
                 Last Emailed
               </label>
               <div className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-700">
-                {editedContact.lastContacted ? format(new Date(editedContact.lastContacted), 'MMMM d, yyyy') : 'No data'}
+                {safeFormatDate(editedContact.lastContacted, 'MMMM d, yyyy', 'No data')}
               </div>
             </motion.div>
           </div>
@@ -307,8 +297,8 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn }:
               Save Changes
             </motion.button>
           </motion.div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+        </Dialog.Panel>
+      </div>
+    </Dialog>
   );
 }

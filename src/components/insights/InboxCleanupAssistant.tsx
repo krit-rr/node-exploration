@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Contact } from '@/types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Dialog } from '@headlessui/react';
 import { analyzeContact, SpamDetectionResult } from '../../utils/spamDetection';
 import CleanupStep1 from './CleanupStep1';
 import CleanupStep2 from './CleanupStep2';
@@ -295,21 +295,11 @@ export default function InboxCleanupAssistant({
   ]);
 
   return (
-    <AnimatePresence mode="wait">
-      <motion.div
-        key="cleanup-assistant"
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        transition={{ duration: 0.2 }}
-        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-      >
-        <motion.div
-          initial={{ y: -50 }}
-          animate={{ y: 0 }}
-          exit={{ y: 50 }}
-          transition={{ duration: 0.2 }}
-          className="bg-white rounded-xl shadow-lg pt-12 px-6 pb-6 max-w-lg w-full relative"
+    <Dialog open onClose={onClose} className="relative z-50">
+      <div className="fixed inset-0 bg-black bg-opacity-50" aria-hidden="true" />
+      <div className="fixed inset-0 flex items-center justify-center p-4">
+        <Dialog.Panel
+          className="bg-white rounded-xl shadow-lg pt-12 px-6 pb-6 max-w-lg w-full relative max-h-[90vh] overflow-y-auto"
         >
           {/* Close Button */}
           <button
@@ -336,8 +326,8 @@ export default function InboxCleanupAssistant({
 
           {/* Step Content */}
           {renderStep()}
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+        </Dialog.Panel>
+      </div>
+    </Dialog>
   );
 }

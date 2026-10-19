@@ -7,6 +7,7 @@ import TimeframeSelector from '@/components/insights/TimeframeSelector';
 import RelationshipTimeline from '@/components/insights/RelationshipTimeline';
 import SmartInsights from '@/components/insights/SmartInsights';
 import { useContacts } from '@/hooks/useContacts';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 export default function InsightsPage() {
   const [selectedTimeframe, setSelectedTimeframe] = useState<'30d' | '90d' | '1y'>('30d');
@@ -34,24 +35,28 @@ export default function InsightsPage() {
             </div>
 
             <div className="space-y-8">
-              <NetworkScore
-                contacts={contacts}
-                onViewChange={setCurrentView}
-              />
+              <ErrorBoundary label="NetworkScore">
+                <NetworkScore
+                  contacts={contacts}
+                  onViewChange={setCurrentView}
+                />
+              </ErrorBoundary>
 
-              {currentView === 'organize' ? (
-                <SmartInsights
-                  contacts={contacts}
-                  onGroupCreate={() => {}}
-                />
-              ) : (
-                <RelationshipTimeline
-                  contacts={contacts}
-                  timeframe={selectedTimeframe}
-                  isExpanded={true}
-                  onToggleExpand={() => {}}
-                />
-              )}
+              <ErrorBoundary label={currentView === 'organize' ? 'SmartInsights' : 'RelationshipTimeline'}>
+                {currentView === 'organize' ? (
+                  <SmartInsights
+                    contacts={contacts}
+                    onGroupCreate={() => {}}
+                  />
+                ) : (
+                  <RelationshipTimeline
+                    contacts={contacts}
+                    timeframe={selectedTimeframe}
+                    isExpanded={true}
+                    onToggleExpand={() => {}}
+                  />
+                )}
+              </ErrorBoundary>
             </div>
           </div>
         </div>

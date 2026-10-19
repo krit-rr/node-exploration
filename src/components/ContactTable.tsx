@@ -1,8 +1,8 @@
 import { Contact } from '@/types';
 import { useState, useRef, useEffect } from 'react';
-import { format, isValid, parseISO } from 'date-fns';
 import { motion } from 'framer-motion';
 import { useHotkeys } from 'react-hotkeys-hook';
+import { safeFormatDate, toDateInputValue } from '@/utils/dates';
 import Pagination from './Pagination';
 
 interface ContactTableProps {
@@ -35,14 +35,7 @@ type Column = {
   render: (contact: Contact) => React.ReactNode;
 };
 
-const formatDate = (dateString: string) => {
-  try {
-    const date = parseISO(dateString);
-    return isValid(date) ? format(date, 'MMM d, yyyy') : '-';
-  } catch {
-    return '-';
-  }
-};
+const formatDate = (dateString: string) => safeFormatDate(dateString);
 
 interface EditableCellProps {
   value: string;
@@ -232,8 +225,9 @@ export default function ContactTable({
     
     let editValue = '';
     if (field === 'lastContacted') {
-      const date = new Date(contact.lastContacted);
-      editValue = date.toISOString().split('T')[0];
+      // Guarded: a missing/unparseable date used to throw here and unmount
+      // the whole table on double-click.
+      editValue = toDateInputValue(contact.lastContacted);
     } else if (field === 'email') {
       editValue = contact.email;
     } else {
