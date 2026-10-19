@@ -1,6 +1,7 @@
 import { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import AzureADProvider from "next-auth/providers/azure-ad";
+import CredentialsProvider from "next-auth/providers/credentials";
 import { JWT } from "next-auth/jwt";
 import { DefaultSession } from "next-auth";
 import { SessionStrategy } from "next-auth";
@@ -72,6 +73,27 @@ if (!microsoftClientId || !microsoftClientSecret) {
   console.error("Missing Microsoft Entra ID credentials. Please check your .env.local file.");
 }
 
+/**
+ * Dev-only demo sign-in: a fixed local test user with no password, for
+ * exercising the app without provider OAuth. Registered ONLY when the env
+ * opts in AND the build is not production, so it can never ship as a
+ * backdoor. The demo session has no mailbox token; /api/contacts serves the
+ * seeded store for it.
+ */
+const demoProvider =
+  process.env.ALLOW_DEMO_LOGIN === 'true' && process.env.NODE_ENV !== 'production'
+    ? [
+        CredentialsProvider({
+          id: 'demo-login',
+          name: 'Demo user',
+          credentials: {},
+          async authorize() {
+            return { id: 'demo', name: 'Demo User', email: 'demo@ntwrk.test' };
+          },
+        }),
+      ]
+    : [];
+
 export const authOptions: NextAuthOptions = {
   secret: nextAuthSecret,
   session: {
@@ -82,6 +104,7 @@ export const authOptions: NextAuthOptions = {
     secret: process.env.NEXTAUTH_SECRET,
   },
   providers: [
+    ...demoProvider,
     GoogleProvider({
       clientId: googleClientId || "",
       clientSecret: googleClientSecret || "",
@@ -125,6 +148,9 @@ export const authOptions: NextAuthOptions = {
       // Initial sign-in: capture the full token set, including the refresh
       // token and expiry both providers already issue (offline access).
       if (account) {
+        if (account.provider === 'demo-login') {
+          return { ...token, provider: 'demo', error: undefined };
+        }
         return {
           ...token,
           accessToken: account.access_token,

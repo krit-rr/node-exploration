@@ -156,6 +156,15 @@ export default function Auth() {
                 </svg>
               </button>
 
+              {process.env.NEXT_PUBLIC_ALLOW_DEMO_LOGIN === 'true' && (
+                <button
+                  onClick={() => signIn('demo-login', { callbackUrl: '/contacts' })}
+                  className="w-full flex items-center justify-center gap-2 px-8 py-2.5 rounded-xl border border-dashed border-[#1E1E3F]/30 text-[#1E1E3F]/70 hover:bg-[#1E1E3F]/5 transition-all text-sm"
+                >
+                  Try the demo (dev only, seeded data)
+                </button>
+              )}
+
               <div className="flex justify-center">
                 <button 
                   onClick={() => setIsModalOpen(true)}

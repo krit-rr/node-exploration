@@ -44,7 +44,22 @@ export async function GET(request: NextRequest) {
         { status: 401 }
       );
     }
-    if (!token?.accessToken || !token.email) {
+    if (!token?.email) {
+      return NextResponse.json(
+        { error: "You must be signed in to access this API" },
+        { status: 401 }
+      );
+    }
+
+    // Demo sessions have no mailbox token: serve the seeded store directly.
+    if (token.provider === 'demo') {
+      const stored = await listContacts(token.email.toLowerCase());
+      const response = NextResponse.json({ contacts: stored.contacts, persisted: stored.available });
+      response.headers.set('Cache-Control', 'private, no-store');
+      return response;
+    }
+
+    if (!token.accessToken) {
       return NextResponse.json(
         { error: "You must be signed in to access this API" },
         { status: 401 }
