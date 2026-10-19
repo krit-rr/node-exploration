@@ -32,7 +32,7 @@ type ContactRow = {
 // treat as "store not provisioned yet".
 const MISSING_TABLE_CODES = new Set(['42P01', 'PGRST205', 'PGRST116']);
 
-function isMissingStore(error: { code?: string; message?: string } | null): boolean {
+export function isMissingStore(error: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
   if (error.code && MISSING_TABLE_CODES.has(error.code)) return true;
   return /relation .*contacts.* does not exist|Could not find the table/i.test(error.message ?? '');
