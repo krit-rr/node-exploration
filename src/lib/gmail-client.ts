@@ -81,8 +81,14 @@ export class GmailClient {
           return null;
         }
 
+        // Split only on commas outside double quotes: display names like
+        // "Doe, John" <john@x.com> contain commas that are not separators.
         const recipients = ['To', 'Cc', 'Bcc'].flatMap(header =>
-          getHeader(header).split(',').filter(Boolean).map(addr => this.parseEmailAddress(addr))
+          getHeader(header)
+            .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+            .map(addr => addr.trim())
+            .filter(Boolean)
+            .map(addr => this.parseEmailAddress(addr))
         );
 
         return {
