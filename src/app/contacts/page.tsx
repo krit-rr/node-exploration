@@ -155,30 +155,20 @@ function useGroupsPersistence(userEmail: string | null | undefined) {
     }
   }, [userEmail]);
   
-  // Save filter state to localStorage
-  const saveFilter = useCallback((filter: FilterType) => {
-    if (!userEmail) return;
-    
-    try {
-      console.log('Saving filter state:', filter);
-      const filterKey = `contact-filter_${userEmail}`;
-      localStorage.setItem(filterKey, filter);
-      setActiveFilterState(filter);
-    } catch (error) {
-      console.error('Error saving filter state:', error);
-    }
-  }, [userEmail]);
-  
   // Initial load on mount or when user email changes
   useEffect(() => {
     loadData();
   }, [loadData, userEmail]);
-  
-  return { 
-    groups, 
-    setGroups: saveGroups, 
+
+  return {
+    groups,
+    setGroups: saveGroups,
     filter: activeFilter,
-    setFilter: saveFilter,
+    // Deliberately not persisted: the ?group= URL param is the shareable,
+    // durable form of the filter. (A `contact-filter_<email>` localStorage
+    // copy used to be written here but was never read back; clientSignOut
+    // still clears that key for users who have it from older builds.)
+    setFilter: setActiveFilterState,
     reloadData: loadData,
     loadedGroups
   };
@@ -216,8 +206,12 @@ function ContactsContent() {
     }
   }, [groupIdFromUrl, groups, loadedGroups, setFilter]);
   
-  // Sync filter state to URL when filter changes (keep this separate)
+  // Sync filter state to URL when filter changes (keep this separate).
+  // Gated on loadedGroups: until groups load, `filter` is still the 'all'
+  // default, and the else-branch would strip a ?group= deep link from the
+  // URL before the restore effect above has had a chance to apply it.
   useEffect(() => {
+    if (!loadedGroups) return;
     if (filter && filter !== 'all' && filter.startsWith('group-')) {
       const groupId = filter.replace('group-', '');
       // Only update URL if it's different to avoid unnecessary history entries
@@ -234,7 +228,7 @@ function ContactsContent() {
       console.log('Removing group param from URL');
       router.replace(pathname, { scroll: false });
     }
-  }, [filter, pathname, router, searchParams, groupIdFromUrl]);
+  }, [filter, pathname, router, searchParams, groupIdFromUrl, loadedGroups]);
   
   // Force reload data when the component becomes visible
   useEffect(() => {
