@@ -506,15 +506,15 @@ function ContactsContent() {
         }
       }
     },
-    ...(contacts && contacts.length > 0 && contacts[0]?.customFields ? 
+    ...(contacts && contacts.length > 0 && contacts[0]?.customFields ?
       contacts[0].customFields.map((field: CustomField) => ({
-        key: field.label.toLowerCase().replace(/\s+/g, '_') as ColumnKey,
+        // Key must match handleAddColumn/customFieldsData ('custom_' prefix),
+        // which is also the field id stored on every contact.
+        key: `custom_${field.label.toLowerCase().replace(/\s+/g, '_')}` as ColumnKey,
         label: field.label,
         description: `Custom field: ${field.label}`,
         render: (contact: Contact) => {
-          const customField = contact.customFields?.find(f => 
-            f.label.toLowerCase().replace(/\s+/g, '_') === field.label.toLowerCase().replace(/\s+/g, '_')
-          );
+          const customField = contact.customFields?.find(f => f.id === field.id);
           return customField?.value || '-';
         }
       })) : []
