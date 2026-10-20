@@ -106,53 +106,78 @@ function useGroupsPersistence(userEmail: string | null | undefined) {
   const [activeFilter, setActiveFilterState] = useState<FilterType>('all');
   const [loadedGroups, setLoadedGroups] = useState(false);
   
-  // Load groups and filter state from localStorage
-  const loadData = useCallback(() => {
+  // Load groups: server first (so they follow the account across devices),
+  // localStorage as the offline/unprovisioned fallback. ALWAYS sets state —
+  // on an account switch that reset is what stops the previous user's
+  // groups being re-persisted under the new user's key.
+  const loadData = useCallback(async () => {
     if (!userEmail) return;
-    
-    try {
-      // Load groups first
-      const groupsKey = getGroupsStorageKey(userEmail);
-      const savedGroups = localStorage.getItem(groupsKey);
-      
-      let loadedGroupsData: Array<{id: string, name: string, members: string[]}> = [];
+    const groupsKey = getGroupsStorageKey(userEmail);
+    const readLocal = (): Array<{id: string, name: string, members: string[]}> => {
+      try {
+        const raw = localStorage.getItem(groupsKey);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    };
 
-      if (savedGroups) {
-        loadedGroupsData = JSON.parse(savedGroups);
-      } else {
-        // Migration from older format
-        const oldGroups = localStorage.getItem('contact-groups');
-        if (oldGroups) {
-          const parsedOldGroups = JSON.parse(oldGroups);
-          if (Array.isArray(parsedOldGroups) && parsedOldGroups.length > 0) {
-            localStorage.setItem(groupsKey, oldGroups);
-            loadedGroupsData = parsedOldGroups;
+    try {
+      const response = await fetch('/api/groups');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.persisted) {
+          let serverGroups: Array<{id: string, name: string, members: string[]}> = data.groups ?? [];
+          const local = readLocal();
+          if (serverGroups.length === 0 && local.length > 0) {
+            // One-time migration: groups created before the server store
+            serverGroups = local;
+            fetch('/api/groups', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ groups: local }),
+            }).catch(() => {});
           }
+          try { localStorage.setItem(groupsKey, JSON.stringify(serverGroups)); } catch {}
+          setGroupsState(serverGroups);
+          setLoadedGroups(true);
+          return;
         }
       }
-
-      // ALWAYS set state (empty array included): on an account switch this
-      // is what prevents the previous user's groups from lingering in memory
-      // and being re-persisted under the new user's key.
-      setGroupsState(loadedGroupsData);
-      setLoadedGroups(true);
-    } catch (error) {
-      console.error('Error loading data:', error);
+    } catch {
+      // offline: fall through to the local cache
     }
+
+    setGroupsState(readLocal());
+    setLoadedGroups(true);
   }, [userEmail]);
   
-  // Save groups to localStorage
+  // Save groups: optimistic local update + localStorage cache, then the
+  // server replace-set. A failed sync keeps the local copy and says so.
   const saveGroups = useCallback((updatedGroups: Array<{id: string, name: string, members: string[]}>) => {
     if (!userEmail) return;
-    
+
+    setGroupsState(updatedGroups);
+    setLoadedGroups(true);
     try {
-      const groupsKey = getGroupsStorageKey(userEmail);
-      localStorage.setItem(groupsKey, JSON.stringify(updatedGroups));
-      setGroupsState(updatedGroups);
-      setLoadedGroups(true);
+      localStorage.setItem(getGroupsStorageKey(userEmail), JSON.stringify(updatedGroups));
     } catch (error) {
-      console.error('Error saving groups:', error);
+      console.error('Error caching groups:', error);
     }
+
+    fetch('/api/groups', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groups: updatedGroups }),
+    })
+      .then(response => { if (!response.ok) throw new Error(String(response.status)); })
+      .catch(() => {
+        toast.error('Groups saved on this device; server sync failed', {
+          duration: 3000,
+          position: 'bottom-right',
+        });
+      });
   }, [userEmail]);
   
   // Save filter state to localStorage
@@ -455,7 +480,15 @@ function ContactsContent() {
       key: 'name' as ColumnKey,
       label: 'Name',
       description: 'Contact\'s full name',
-      render: (contact: Contact) => contact.name
+      render: (contact: Contact) => (
+        <button
+          onClick={() => setSelectedContact(contact)}
+          className="text-left font-medium text-[#1E1E3F] hover:underline underline-offset-2"
+          aria-label={`Open details for ${contact.name}`}
+        >
+          {contact.name}
+        </button>
+      )
     },
     {
       key: 'email' as ColumnKey,
@@ -1503,13 +1536,6 @@ function ContactsContent() {
                   ? persistContacts(session.user.email, updatedContacts)
                   : { contacts: updatedContacts, lastUpdated: new Date().toISOString() }
               );
-            }}
-            onExcludeFromAnalytics={(exclude) => {
-              // Update analytics settings in user preferences
-              fetch('/api/user/preferences', {
-                method: 'PATCH',
-                body: JSON.stringify({ excludeFromAnalytics: exclude })
-              });
             }}
             onClose={() => {
               try {

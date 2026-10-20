@@ -1,6 +1,4 @@
 import { Contact } from '@/types';
-import { EMAIL_PATTERNS } from '../components/insights/InboxCleanupAssistant';
-import { adaptContact } from './contactAdapter';
 
 export interface SpamDetectionResult {
   isSpam: boolean;
@@ -8,149 +6,211 @@ export interface SpamDetectionResult {
   confidence: number;
 }
 
-export interface DetectionResult {
-  isSpam: boolean;
-  reason?: string;
+// Pattern data lives here (not in a component) so the dependency points
+// UI -> utils, not in a cycle. Previously the component exported this and
+// this module imported it back.
+export const EMAIL_PATTERNS = {
+  marketing: {
+    title: 'Marketing & Promotions',
+    patterns: [
+      'promotions?',
+      'deals?',
+      'offer',
+      'sale',
+      'discount',
+      'store',
+      'shop',
+      'buy',
+      'special',
+      'promo',
+      '@marketing',
+    ],
+    icon: '🏷️',
+  },
+  notifications: {
+    title: 'Notifications & Alerts',
+    patterns: [
+      'notification',
+      'alert(s)?',
+      'notify',
+      'update',
+      'status',
+      'reminder',
+      'confirm',
+      'notice',
+      '@alerts?',
+    ],
+    icon: '🔔',
+  },
+  newsletters: {
+    title: 'Newsletters & Updates',
+    patterns: [
+      'newsletter(s)?',
+      'news',
+      'weekly',
+      'monthly',
+      'digest',
+      'info',
+      'learn',
+      'list(s)?',
+      '^info@',
+      'subscribe',
+      '@news',
+      '@info',
+      '@list(s)?',
+    ],
+    icon: '📰',
+  },
+  automated: {
+    title: 'Automated Messages',
+    patterns: [
+      'noreply',
+      'no-reply',
+      'do-not-reply',
+      'automated',
+      'system',
+      'mailer-daemon',
+      '^mail@',
+      '^email@',
+      '^donotreply@',
+      'notifications?@',
+      '@mail\\.',
+      '@mailer\\.',
+    ],
+    icon: '🤖',
+  },
+  corporate: {
+    title: 'Corporate Communications',
+    patterns: [
+      'team',
+      'office',
+      'careers',
+      'hr',
+      'human-?resources',
+      'recruiting',
+      'talent',
+      '^hello@',
+      'company',
+      '@team',
+      '@office',
+      '@careers',
+    ],
+    icon: '🏢',
+  },
+  support: {
+    title: 'Customer Support',
+    patterns: [
+      'support',
+      'help',
+      'service',
+      'contact',
+      'feedback',
+      'survey',
+      'care',
+      'assist',
+      '^reviews?@',
+      '@support',
+      '@service',
+      '@survey',
+    ],
+    icon: '💬',
+  },
+  travel: {
+    title: 'Travel & Logistics',
+    patterns: [
+      'mileageplan',
+      'travel',
+      'flight',
+      'booking',
+      'reservation',
+      'itinerary',
+      'rewards?',
+    ],
+    icon: '✈️',
+  },
+  general: {
+    title: 'General Communications',
+    patterns: [
+      'calendar',
+      'events?',
+      'invite',
+      'rsvp',
+      'schedule',
+    ],
+    icon: '📅',
+  }
 }
 
-export function analyzeContact(contact: Contact): SpamDetectionResult {
-  const reasons: string[] = [];
-  let spamScore = 0;
-  
-  // Use our comprehensive EMAIL_PATTERNS
-  const matches = matchesEmailPatterns(contact.email);
-  if (matches.length > 0) {
-    reasons.push(`Matches patterns: ${matches.join(', ')}`);
-    spamScore += 25 * matches.length; // Increase score for each matching category
-  }
-
-  // 2. Interaction Pattern Analysis
-  if (contact.interactions) {
-    // High frequency, one-way communication
-    if (contact.interactions.length > 10 && 
-        contact.interactions.every(i => i.type === 'received')) {
-      reasons.push('High frequency one-way communication');
-      spamScore += 30;
-    }
-
-    // No responses to sent messages
-    if (contact.interactions.length > 3 && 
-        contact.interactions.every(i => i.type === 'sent')) {
-      reasons.push('No responses to multiple sent messages');
-      spamScore += 20;
-    }
-
-    // Unusual timing patterns (e.g., exact same time every day)
-    const timings = contact.interactions
-      .map(i => new Date(i.date).getHours())
-      .sort();
-    const uniqueTimings = new Set(timings);
-    if (timings.length > 5 && uniqueTimings.size === 1) {
-      reasons.push('Suspicious message timing pattern');
-      spamScore += 15;
-    }
-  }
-
-  // 3. Domain Analysis
-  const suspiciousTLDs = ['.xyz', '.top', '.work', '.click', '.link'];
-  if (suspiciousTLDs.some(tld => contact.email.toLowerCase().endsWith(tld))) {
-    reasons.push('Suspicious email domain');
-    spamScore += 20;
-  }
-
-  // 4. Contact Information Quality
-  if (!contact.name || contact.name.length < 2) {
-    reasons.push('Missing or invalid contact name');
-    spamScore += 10;
-  }
-
-  // Calculate confidence (0-100)
-  const confidence = Math.min(spamScore, 100);
-
-  return {
-    isSpam: confidence >= 25,
-    reasons,
-    confidence
-  };
-} 
+/**
+ * Patterns are compiled once at module load (not per contact per render).
+ * A plain word pattern must sit on a token boundary of the address —
+ * 'news' matches "news@x.com" and "daily.news" but NOT "northbeam.co" or
+ * "newsletter" (which has its own pattern). Patterns carrying their own
+ * anchors or @-context (^info@, @mail\.) are used verbatim.
+ */
+const COMPILED_PATTERNS = Object.values(EMAIL_PATTERNS).map((category) => ({
+  title: category.title,
+  regexes: category.patterns.map((pattern) =>
+    /[@^\\]/.test(pattern)
+      ? new RegExp(pattern, 'i')
+      : new RegExp(`(^|[@._+-])(?:${pattern})(?=$|[@._+-])`, 'i')
+  ),
+}));
 
 function matchesEmailPatterns(email: string): string[] {
   const matches: string[] = [];
-  
-  Object.values(EMAIL_PATTERNS).forEach((data) => {
-    const hasMatch = data.patterns.some(pattern => {
-      const regex = new RegExp(pattern, 'i');
-      return regex.test(email);
-    });
-    
-    if (hasMatch) {
-      matches.push(data.title);
+  for (const category of COMPILED_PATTERNS) {
+    if (category.regexes.some((regex) => regex.test(email))) {
+      matches.push(category.title);
     }
-  });
-  
+  }
   return matches;
-} 
+}
+
+const SUSPICIOUS_TLDS = ['.xyz', '.top', '.work', '.click', '.link'];
 
 /**
- * Detects potential spam contacts based on interaction patterns
+ * Score how likely a contact is list/automation noise rather than a person.
+ *
+ * Calibrated for this app's data model, which is SENT-ONLY: heuristics
+ * about "never replied" or "only received" are meaningless here (every
+ * contact is someone the user emailed), so flagging requires positive
+ * evidence — address patterns or a suspicious TLD. Weak signals (name
+ * quality, odd timing) only ever reinforce, never flag on their own.
  */
-export function detectSpamContacts(contact: Contact): DetectionResult {
-  // Adapt contact to ensure it has proper interactions structure
-  const adaptedContact = adaptContact(contact);
-  
-  // Skip contacts without interactions
-  if (!adaptedContact.interactions || adaptedContact.interactions.length === 0) {
-    return { isSpam: false };
+export function analyzeContact(contact: Contact): SpamDetectionResult {
+  const reasons: string[] = [];
+  let spamScore = 0;
+
+  const patternMatches = matchesEmailPatterns(contact.email);
+  if (patternMatches.length > 0) {
+    reasons.push(`Matches patterns: ${patternMatches.join(', ')}`);
+    spamScore += 40 * Math.min(patternMatches.length, 2);
   }
 
-  // Check if this is a promotional/marketing email (always receives, never replies)
-  if (adaptedContact.interactions) {
-    // Emails that we ONLY received from, never sent to
-    if (adaptedContact.interactions.length > 10 &&
-        adaptedContact.interactions.every(i => i.type === 'received')) {
-      return { 
-        isSpam: true, 
-        reason: 'Promotional (always received, never sent)'
-      };
-    }
-    
-    // Emails that we ONLY sent to, never received from
-    if (adaptedContact.interactions.length > 3 &&
-        adaptedContact.interactions.every(i => i.type === 'sent')) {
-      return { 
-        isSpam: false, // These are now our primary contacts from sent mail
-        reason: 'Always sent, never received'
-      };
-    }
+  if (SUSPICIOUS_TLDS.some((tld) => contact.email.toLowerCase().endsWith(tld))) {
+    reasons.push('Suspicious email domain');
+    spamScore += 30;
+  }
 
-    // Check for automated/bulk email patterns
-    const timings = adaptedContact.interactions
-      .map(i => new Date(i.date).getTime())
-      .sort((a, b) => a - b);
+  // Reinforcing signals only (cannot reach the threshold alone)
+  if (!contact.name || contact.name.length < 2 || contact.name === contact.email) {
+    reasons.push('Missing or placeholder contact name');
+    spamScore += 15;
+  }
 
-    // Check for regular interval patterns (a sign of automated emails)
-    if (timings.length >= 3) {
-      const intervals = [];
-      for (let i = 1; i < timings.length; i++) {
-        intervals.push(timings[i] - timings[i-1]);
-      }
-      
-      const avgInterval = intervals.reduce((sum, int) => sum + int, 0) / intervals.length;
-      
-      // Calculate standard deviation of intervals
-      const stdDev = Math.sqrt(
-        intervals.reduce((sum, int) => sum + Math.pow(int - avgInterval, 2), 0) / intervals.length
-      );
-      
-      // If intervals are very regular (low standard deviation relative to average)
-      if (stdDev / avgInterval < 0.1 && adaptedContact.interactions.length > 5) {
-        return { 
-          isSpam: true, 
-          reason: 'Regular timing pattern (likely automated)'
-        };
-      }
+  if (contact.interactions && contact.interactions.length >= 8) {
+    const hours = new Set(contact.interactions.map((i) => new Date(i.date).getHours()));
+    if (hours.size <= 1) {
+      reasons.push('Identical send time on every message');
+      spamScore += 10;
     }
   }
-  
-  return { isSpam: false };
-} 
+
+  const confidence = Math.min(spamScore, 100);
+  return {
+    isSpam: confidence >= 40,
+    reasons,
+    confidence,
+  };
+}
