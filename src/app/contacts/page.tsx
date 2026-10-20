@@ -21,6 +21,7 @@ import { IconName } from '@/components/ui/icons/Icon';
 import React from 'react';
 import DomainStats from '@/components/DomainStats';
 import { useContacts, syncContacts, getContactsStorageKey, persistContacts, type ContactsData } from '@/hooks/useContacts';
+import { customKeyForLabel, customFieldKey } from '@/utils/customFields';
 import { useSemanticSearch } from '@/hooks/useSemanticSearch';
 import { Suspense } from 'react';
 
@@ -48,6 +49,13 @@ const getGroupsStorageKey = (userEmail: string | null | undefined): string => {
   }
   return `contact-groups_${userEmail}`;
 };
+
+// Custom column definitions persist per user (like groups), so a freshly
+// added column survives reload even before any contact carries a value.
+type StoredCustomColumn = { key: CustomColumnKey; label: string };
+
+const getCustomColumnsStorageKey = (userEmail: string): string =>
+  `custom-columns_${userEmail}`;
 
 type FilterType = 'all' | `group-${string}`;
 
@@ -282,6 +290,8 @@ function ContactsContent() {
     'lastContacted'
   ]);
   const [availableColumnsList, setAvailableColumnsList] = useState<Column[]>([]);
+  const [customColumnDefs, setCustomColumnDefs] = useState<StoredCustomColumn[]>([]);
+  const [loadedCustomColumns, setLoadedCustomColumns] = useState(false);
 
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showCleanupAssistant, setShowCleanupAssistant] = useState(false);
@@ -450,6 +460,21 @@ function ContactsContent() {
     return times;
   }, [displayContacts]);
 
+  // Custom columns come from two sources keyed identically: fields present
+  // on any contact (server data) and the persisted per-user definitions
+  // (columns added before any value was saved). Definition labels win.
+  const mergedCustomDefs = useMemo(() => {
+    const defs = new Map<CustomColumnKey, string>();
+    for (const contact of contacts ?? []) {
+      for (const field of contact.customFields ?? []) {
+        const key = customFieldKey(field);
+        if (!defs.has(key)) defs.set(key, field.label);
+      }
+    }
+    for (const def of customColumnDefs) defs.set(def.key, def.label);
+    return defs;
+  }, [contacts, customColumnDefs]);
+
   const availableColumns = useMemo(() => [
     {
       key: 'name' as ColumnKey,
@@ -506,20 +531,16 @@ function ContactsContent() {
         }
       }
     },
-    ...(contacts && contacts.length > 0 && contacts[0]?.customFields ?
-      contacts[0].customFields.map((field: CustomField) => ({
-        // Key must match handleAddColumn/customFieldsData ('custom_' prefix),
-        // which is also the field id stored on every contact.
-        key: `custom_${field.label.toLowerCase().replace(/\s+/g, '_')}` as ColumnKey,
-        label: field.label,
-        description: `Custom field: ${field.label}`,
-        render: (contact: Contact) => {
-          const customField = contact.customFields?.find(f => f.id === field.id);
-          return customField?.value || '-';
-        }
-      })) : []
-    )
-  ], [contacts]);
+    ...Array.from(mergedCustomDefs, ([key, label]) => ({
+      key: key as ColumnKey,
+      label,
+      description: `Custom field: ${label}`,
+      render: (contact: Contact) => {
+        const customField = contact.customFields?.find(f => customFieldKey(f) === key);
+        return customField?.value || '-';
+      }
+    }))
+  ], [mergedCustomDefs]);
 
   // Replace this useEffect with direct assignment
   useEffect(() => {
@@ -537,6 +558,42 @@ function ContactsContent() {
       localStorage.setItem(groupsKey, JSON.stringify(groups));
     }
   }, [groups, session?.user?.email]);
+
+  // Load persisted custom column definitions for this user. Always set
+  // state (empty included) so an account switch can't leak the previous
+  // user's columns.
+  useEffect(() => {
+    if (!session?.user?.email) return;
+    try {
+      const raw = localStorage.getItem(getCustomColumnsStorageKey(session.user.email));
+      const parsed = raw ? JSON.parse(raw) : [];
+      setCustomColumnDefs(
+        Array.isArray(parsed)
+          ? parsed.filter((def): def is StoredCustomColumn =>
+              !!def && typeof def.key === 'string' && def.key.startsWith('custom_') &&
+              typeof def.label === 'string')
+          : []
+      );
+    } catch (error) {
+      console.error('Error loading custom columns:', error);
+      setCustomColumnDefs([]);
+    }
+    setLoadedCustomColumns(true);
+  }, [session?.user?.email]);
+
+  // Save custom column definitions whenever they change — only after the
+  // initial load, so the empty first render can't wipe the stored list.
+  useEffect(() => {
+    if (!session?.user?.email || !loadedCustomColumns) return;
+    try {
+      localStorage.setItem(
+        getCustomColumnsStorageKey(session.user.email),
+        JSON.stringify(customColumnDefs)
+      );
+    } catch (error) {
+      console.error('Error saving custom columns:', error);
+    }
+  }, [customColumnDefs, loadedCustomColumns, session?.user?.email]);
 
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -654,11 +711,11 @@ function ContactsContent() {
       filteredResults.sort((a, b) => {
         // Handle custom field sorting
         if (typeof sortConfig.key === 'string' && sortConfig.key.startsWith('custom_')) {
-          const aCustomField = a.customFields?.find((f: CustomField) => 
-            f.id === sortConfig.key
+          const aCustomField = a.customFields?.find((f: CustomField) =>
+            customFieldKey(f) === sortConfig.key
           );
-          const bCustomField = b.customFields?.find((f: CustomField) => 
-            f.id === sortConfig.key
+          const bCustomField = b.customFields?.find((f: CustomField) =>
+            customFieldKey(f) === sortConfig.key
           );
           
           const aValue = aCustomField?.value || '';
@@ -743,39 +800,19 @@ function ContactsContent() {
     setCurrentPage(1);
   }, [search, filter]);
 
-  // Memoize the custom fields processing
-  const customFieldsData = useMemo(() => {
-    if (!contacts?.length) return [];
-    
-    const firstContactWithFields = contacts.find((contact: Contact) => 
-      contact.customFields && contact.customFields.length > 0
-    );
-    
-    if (!firstContactWithFields?.customFields) return [];
-    
-    return firstContactWithFields.customFields.map((field: CustomField) => 
-      `custom_${field.label.toLowerCase().replace(/\s+/g, '_')}` as ColumnKey
-    );
-  }, [contacts]);
-
-  // Memoize the column update function
-  const updateColumns = useCallback((customFields: ColumnKey[]) => {
-    setActiveColumns(prev => {
-      const newFields = customFields.filter(key => !prev.includes(key));
-      return newFields.length > 0 ? [...prev, ...newFields] : prev;
-    });
-  }, []);
-
-  // Use effect with memoized values
+  // Activate each custom column once when it first appears. The seen-set
+  // keeps this from re-adding a column the user has since unchecked.
+  const seededCustomKeys = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (customFieldsData.length > 0) {
-      // Check if we actually need to update to avoid unnecessary state changes
-      const newFields = customFieldsData.filter((key: ColumnKey) => !activeColumns.includes(key));
-      if (newFields.length > 0) {
-        updateColumns(customFieldsData);
-      }
-    }
-  }, [customFieldsData, updateColumns, activeColumns]);
+    const newKeys = Array.from(mergedCustomDefs.keys())
+      .filter(key => !seededCustomKeys.current.has(key));
+    if (newKeys.length === 0) return;
+    newKeys.forEach(key => seededCustomKeys.current.add(key));
+    setActiveColumns(prev => {
+      const toAdd = (newKeys as ColumnKey[]).filter(key => !prev.includes(key));
+      return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+    });
+  }, [mergedCustomDefs]);
 
   const updateContactMutation = useMutation({
     // Addressed by the ORIGINAL email so an email edit updates the stored
@@ -966,47 +1003,26 @@ function ContactsContent() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleAddColumn = (column: { 
-    key: string; 
-    label: string; 
-    render: (contact: Contact) => React.ReactNode 
+  const handleAddColumn = (column: {
+    key: string;
+    label: string;
+    render: (contact: Contact) => React.ReactNode
   }) => {
-    const customKey = `custom_${column.label.toLowerCase().replace(/\s+/g, '_')}` as CustomColumnKey;
-    const newColumn = {
-      key: customKey,
-      label: column.label,
-      description: `Custom field: ${column.label}`,
-      render: column.render
-    };
-    
-    // Update contacts to include the new custom field
-    const updatedContacts = contacts.map((contact: Contact) => ({
-      ...contact,
-      customFields: [
-        ...(contact.customFields || []),
-        {
-          id: customKey,
-          label: column.label,
-          value: ''
-        }
-      ]
-    }));
-    
-    queryClient.setQueryData<ContactsData>(
-      ['sentRecipients', session?.user?.email],
-      session?.user?.email
-        ? persistContacts(session.user.email, updatedContacts)
-        : { contacts: updatedContacts, lastUpdated: new Date().toISOString() }
+    const customKey = customKeyForLabel(column.label);
+
+    // Register the definition (persisted per user); values are written
+    // into each contact's customFields when a cell is edited, so no
+    // contact data changes here.
+    seededCustomKeys.current.add(customKey);
+    setCustomColumnDefs(prev =>
+      prev.some(def => def.key === customKey)
+        ? prev
+        : [...prev, { key: customKey, label: column.label }]
     );
 
     setActiveColumns(prev => {
       if (prev.includes(customKey)) return prev;
       return [...prev, customKey];
-    });
-    
-    setAvailableColumnsList(prev => {
-      if (prev.some(col => col.key === customKey)) return prev;
-      return [...prev, newColumn];
     });
   };
 
@@ -1375,8 +1391,17 @@ function ContactsContent() {
                 onColumnChange={(columns) => setActiveColumns(columns as ColumnKey[])}
                 onAddColumn={handleAddColumn}
                 onEditColumn={(key, newLabel) => {
+                  // Persist renames of custom columns; the reconcile effect
+                  // rebuilds the visible list from the definitions.
+                  if (key.startsWith('custom_')) {
+                    setCustomColumnDefs(prev =>
+                      prev.some(def => def.key === key)
+                        ? prev.map(def => def.key === key ? { ...def, label: newLabel } : def)
+                        : [...prev, { key: key as CustomColumnKey, label: newLabel }]
+                    );
+                  }
                   // Also update availableColumnsList to show the new label in the UI
-                  setAvailableColumnsList(prev => prev.map(col => 
+                  setAvailableColumnsList(prev => prev.map(col =>
                     col.key === key ? { ...col, label: newLabel } : col
                   ));
                 }}

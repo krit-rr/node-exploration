@@ -3,6 +3,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { safeFormatDate, toDateInputValue } from '@/utils/dates';
+import { getContactFieldValue, withContactFieldValue } from '@/utils/customFields';
 import Pagination from './Pagination';
 
 interface ContactTableProps {
@@ -129,6 +130,7 @@ function ShortcutsGuide({ visible }: { visible: boolean; isKeyboardActive: boole
 export default function ContactTable({
   contacts,
   columns,
+  onContactClick,
   currentPage,
   itemsPerPage,
   className,
@@ -221,8 +223,9 @@ export default function ContactTable({
   };
 
   const handleDoubleClick = (contact: Contact, field: string) => {
-    const value = contact[field as keyof Contact];
-    
+    // Custom columns read their value out of customFields, not a prop.
+    const value = getContactFieldValue(contact, field);
+
     let editValue = '';
     if (field === 'lastContacted') {
       // Guarded: a missing/unparseable date used to throw here and unmount
@@ -231,7 +234,7 @@ export default function ContactTable({
     } else if (field === 'email') {
       editValue = contact.email;
     } else {
-      editValue = value?.toString() || '';
+      editValue = value != null ? String(value) : '';
     }
 
     setEditingCell({
@@ -469,11 +472,15 @@ export default function ContactTable({
 
   const handleSaveEdit = async () => {
     if (!editingCell) return;
-    
-    const updatedContact = {
-      ...paginatedContacts.find(c => c.email === editingCell.contactId)!,
-      [editingCell.field]: editingCell.value
-    };
+
+    // Custom columns upsert the matching customFields entry; writing them
+    // as a top-level property would never render or sort.
+    const updatedContact = withContactFieldValue(
+      paginatedContacts.find(c => c.email === editingCell.contactId)!,
+      editingCell.field,
+      editingCell.value,
+      safeColumns.find(col => col.key === editingCell.field)?.label
+    );
     
     try {
       // contactId is the row's pre-edit email: the server updates by it, so
@@ -504,7 +511,8 @@ export default function ContactTable({
       if (columnKey === 'lastContacted') {
         return formatDate(contact.lastContacted);
       }
-      return contact[columnKey as keyof Contact] || '';
+      const value = getContactFieldValue(contact, columnKey);
+      return value ? String(value) : '';
     }).join(', ');
     
     navigator.clipboard.writeText(values);
@@ -532,7 +540,33 @@ export default function ContactTable({
     if (column.key === 'lastContacted') {
       return formatDate(contact.lastContacted);
     }
-    
+
+    // Name cells carry the row's "open details" affordance: single click
+    // focuses the cell and double click edits it, so details open from a
+    // hover button like the email cell's copy button.
+    if (column.key === 'name' && onContactClick) {
+      return (
+        <div className="group/name relative flex items-center pr-7">
+          <span>{column.render(contact)}</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onContactClick(contact);
+            }}
+            className="absolute right-0 opacity-0 group-hover/name:opacity-100 transition-opacity duration-200
+              p-1.5 rounded-md hover:bg-[#F4F4FF] active:bg-[#E4E4FF]
+              focus:outline-none focus:ring-2 focus:ring-[#1E1E3F]/20"
+            aria-label={`View details for ${contact.name}`}
+          >
+            <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          </button>
+        </div>
+      );
+    }
+
     // Special handling for email cells
     if (column.key === 'email') {
       const isCopied = copiedEmailId === contact.email;
@@ -580,7 +614,7 @@ export default function ContactTable({
       const [contactId, field] = cellId.split(':');
       const contact = paginatedContacts.find(c => c.email === contactId);
       if (contact) {
-        newCopiedCells.set(cellId, contact[field as keyof Contact]);
+        newCopiedCells.set(cellId, getContactFieldValue(contact, field));
       }
     });
     setState(prev => ({ ...prev, copiedCells: newCopiedCells }));
@@ -607,11 +641,16 @@ export default function ContactTable({
 
     try {
       // Batch update all changes
-      await Promise.all(updates.map(update => 
-        onContactUpdate({
-          ...paginatedContacts.find(c => c.email === update.contactId)!,
-          [update.field]: update.value
-        }, update.contactId)
+      await Promise.all(updates.map(update =>
+        onContactUpdate(
+          withContactFieldValue(
+            paginatedContacts.find(c => c.email === update.contactId)!,
+            update.field,
+            update.value != null ? String(update.value) : '',
+            safeColumns.find(col => col.key === update.field)?.label
+          ),
+          update.contactId
+        )
       ));
       showToast('Changes applied', 'success');
     } catch {
