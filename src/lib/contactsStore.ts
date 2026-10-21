@@ -304,6 +304,54 @@ export async function applyEnrichment(
   return { available: true, updated };
 }
 
+/**
+ * Log a touch: a call, meeting, or email the user initiated. Appends a
+ * dated interaction and bumps last_contacted so recency is honest for
+ * networking that happens off-email.
+ */
+export async function logTouch(
+  owner: string,
+  email: string,
+  channel: 'email' | 'call' | 'meeting' | 'other',
+  note?: string
+): Promise<{ available: boolean; contact: Contact | null }> {
+  const supabase = getSupabaseAdmin();
+  const target = email.toLowerCase();
+
+  const { data: rows, error: readError } = await supabase
+    .from('contacts')
+    .select('*')
+    .eq('owner_email', owner)
+    .eq('email', target);
+  if (readError) {
+    if (isMissingStore(readError)) return { available: false, contact: null };
+    throw new Error(`Failed to read contact for touch: ${readError.message}`);
+  }
+  if (!rows || rows.length === 0) return { available: true, contact: null };
+
+  const row = rows[0] as ContactRow;
+  const now = new Date().toISOString();
+  const interaction = {
+    date: now,
+    channel,
+    type: 'sent' as const,
+    ...(note ? { subject: note.slice(0, 200) } : {}),
+  };
+  const interactions = [interaction, ...asArray(row.interactions)].slice(0, 50);
+
+  const { data, error } = await supabase
+    .from('contacts')
+    .update({ interactions, last_contacted: now, updated_at: now })
+    .eq('owner_email', owner)
+    .eq('email', target)
+    .select('*');
+  if (error) {
+    if (isMissingStore(error)) return { available: false, contact: null };
+    throw new Error(`Failed to log touch: ${error.message}`);
+  }
+  return { available: true, contact: rowToContact(data![0] as ContactRow) };
+}
+
 /** Snooze (or clear: until=null) a contact in the reconnect queue. */
 export async function setSnooze(
   owner: string,

@@ -4,6 +4,7 @@ export interface ReconnectCandidate {
   contact: Contact;
   daysSince: number;
   lastSubject?: string;
+  priority: boolean;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -18,7 +19,11 @@ export const DEFAULT_COLD_DAYS = 45;
  */
 export function computeReconnectQueue(
   contacts: Contact[],
-  { coldDays = DEFAULT_COLD_DAYS, limit = 5 }: { coldDays?: number; limit?: number } = {}
+  {
+    coldDays = DEFAULT_COLD_DAYS,
+    limit = 5,
+    priorityEmails,
+  }: { coldDays?: number; limit?: number; priorityEmails?: Set<string> } = {}
 ): ReconnectCandidate[] {
   const now = Date.now();
   const candidates: ReconnectCandidate[] = [];
@@ -37,10 +42,17 @@ export function computeReconnectQueue(
     const lastWithSubject = [...sent].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .find(i => i.subject);
 
-    candidates.push({ contact, daysSince, lastSubject: lastWithSubject?.subject });
+    const priority = Boolean(
+      (contact.tags && contact.tags.length > 0) ||
+      priorityEmails?.has(contact.email.toLowerCase())
+    );
+    candidates.push({ contact, daysSince, lastSubject: lastWithSubject?.subject, priority });
   }
 
-  // Oldest relationships first: the ones closest to being lost.
-  candidates.sort((a, b) => b.daysSince - a.daysSince);
+  // Priority relationships first (tagged or in a group), then the oldest:
+  // the ones closest to being lost.
+  candidates.sort((a, b) =>
+    a.priority === b.priority ? b.daysSince - a.daysSince : (a.priority ? -1 : 1)
+  );
   return candidates.slice(0, limit);
 }
