@@ -22,7 +22,7 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#FAFAFA] to-[#F4F4FF] flex items-center justify-center p-4 sm:p-6 lg:p-8">
+    <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center p-4 sm:p-6 lg:p-8">
       <div className={`max-w-5xl w-full transition-opacity duration-500 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}>
         <div className="grid md:grid-cols-2 gap-8 items-center">
           {/* Left Column - Value Proposition */}
@@ -126,7 +126,7 @@ export default function Auth() {
               </div>
               <button 
                 onClick={handleGoogleSignIn}
-                className={`w-full flex items-center justify-center gap-3 px-8 py-3.5 bg-white rounded-xl hover:bg-[#1E1E3F]/5 border border-[#1E1E3F]/10 transition-all group relative shadow-sm hover:shadow-md ${isLoaded ? 'animate-subtle-pulse' : ''}`}
+                className={`w-full flex items-center justify-center gap-3 px-8 py-3.5 bg-white rounded-xl hover:bg-[#1E1E3F]/5 border border-[#1E1E3F]/10 transition-all group relative shadow-sm hover:shadow-md`}
               >
                 <Image src="/google-icon.svg" alt="Google" width={24} height={24} />
                 <span className="text-[#1E1E3F] font-medium">Continue with Google</span>
@@ -142,7 +142,7 @@ export default function Auth() {
 
               <button 
                 onClick={handleMicrosoftSignIn}
-                className={`w-full flex items-center justify-center gap-3 px-8 py-3.5 bg-white rounded-xl hover:bg-[#1E1E3F]/5 border border-[#1E1E3F]/10 transition-all group relative shadow-sm hover:shadow-md ${isLoaded ? 'animate-subtle-pulse' : ''}`}
+                className={`w-full flex items-center justify-center gap-3 px-8 py-3.5 bg-white rounded-xl hover:bg-[#1E1E3F]/5 border border-[#1E1E3F]/10 transition-all group relative shadow-sm hover:shadow-md`}
               >
                 <Image src="/outlook-icon.svg" alt="Microsoft" width={24} height={24} />
                 <span className="text-[#1E1E3F] font-medium">Continue with Microsoft</span>
