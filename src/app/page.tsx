@@ -3,6 +3,11 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import WaitlistPill from '@/components/WaitlistPill';
+import Starfield from '@/components/Starfield';
+import OrbitField from '@/components/OrbitField';
+import { Instrument_Serif } from 'next/font/google';
+
+const instrumentSerif = Instrument_Serif({ weight: '400', style: 'italic', subsets: ['latin'] });
 import { ArrowRight } from 'lucide-react';
 
 const NODE_LAUNCH_MODE = process.env.NEXT_PUBLIC_NODE_LAUNCH_MODE || 'waitlist';
@@ -40,12 +45,12 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-[#14172B] text-white">
+    <div className="min-h-screen bg-[#08090F] text-white">
       {/* Navigation */}
-      <nav className={`fixed w-full z-50 transition-all duration-300 ${scrolled ? 'bg-[#14172B]/95 border-b border-white/10 py-2' : 'bg-transparent py-4'}`}>
+      <nav className={`fixed w-full z-50 transition-all duration-300 ${scrolled ? 'bg-[#08090F]/95 border-b border-white/10 py-2' : 'bg-transparent py-4'}`}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex justify-between items-center">
-            <Link href="/" className="text-2xl font-bold text-white">Node</Link>
+            <Link href="/" className="text-xl font-semibold tracking-wide text-white"><span className="mr-1.5 text-white/80">✦</span>Node</Link>
             <div className="hidden md:flex items-center space-x-8">
               {NODE_LAUNCH_MODE === 'live' ? (
                 <Link 
@@ -62,6 +67,10 @@ export default function Home() {
 
       {/* Hero Section */}
       <section className="flex flex-col items-center justify-center min-h-screen px-4 pt-24 bg-transparent text-center relative overflow-hidden hero-content">
+        <div className="absolute inset-0 z-0" aria-hidden="true">
+          <Starfield />
+          <OrbitField />
+        </div>
         <div className="w-full max-w-6xl mx-auto z-10 flex flex-col items-center justify-center gap-6 xl:gap-8 px-4">
           {/* Text + CTA */}
           <div className="flex flex-col items-center text-center max-w-3xl">
@@ -72,8 +81,9 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, type: 'spring', delay: 0.1 }}
             >
-              <h1 className="text-5xl sm:text-6xl md:text-7xl font-bold leading-[1.1] tracking-tight text-white mb-2">
-                Organize your network. <span className="text-white/60">In seconds.</span>
+              <p className="font-mono text-[11px] tracking-[0.3em] uppercase text-white/40 mb-5">✦ Your network, mapped</p>
+              <h1 className="text-5xl sm:text-6xl md:text-7xl font-semibold leading-[1.08] tracking-tight text-white mb-2">
+                Organize your <span className={`${instrumentSerif.className} font-normal`}>network</span>. <span className="text-white/50">In seconds.</span>
               </h1>
             </motion.div>
 
@@ -122,7 +132,7 @@ export default function Home() {
                 <>
                   <motion.a
                     href="/auth"
-                    className="px-8 py-4 bg-white text-[#14172B] font-semibold rounded-lg text-lg flex items-center gap-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-[#14172B] transition-colors"
+                    className="px-6 py-3 bg-white text-[#08090F] font-medium rounded-full text-base flex items-center gap-2 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-[#08090F] transition-colors"
                     initial={{ opacity: 0, y: 24 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.7, delay: 0.8, type: 'spring' }}
@@ -177,13 +187,13 @@ export default function Home() {
               whileInView={{ opacity: 1, y: 0, scale: 1 }}
               viewport={{ once: true, amount: 0.7 }}
               transition={{ duration: 0.7, type: 'spring', stiffness: 80, damping: 18 }}
-              className="bg-[#1A1D33] rounded-xl border border-white/10 px-8 py-10 flex flex-col items-center gap-4 mx-auto max-w-lg"
+              className="bg-[#0E1018] rounded-xl border border-white/10 px-8 py-10 flex flex-col items-center gap-4 mx-auto max-w-lg"
             >
               <h3 className="text-2xl font-bold text-white mb-4">Ready to clean up your network?</h3>
               <div className="w-full flex flex-col items-center">
                 <Link 
                   href="/auth" 
-                  className="px-8 py-4 bg-white text-[#14172B] font-semibold rounded-lg text-lg flex items-center gap-2 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-[#14172B] transition-colors"
+                  className="px-6 py-3 bg-white text-[#08090F] font-medium rounded-full text-base flex items-center gap-2 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-[#08090F] transition-colors"
                 >
                   Clean My Network
                   <ArrowRight className="ml-2 -mr-1" size={28} strokeWidth={2.2} />
@@ -532,7 +542,7 @@ function GuidedDemoWalkthrough() {
               )}
               <button
                 onClick={next}
-                className="px-8 py-4 bg-white text-[#14172B] rounded-lg font-semibold text-lg hover:bg-gray-100 transition-colors"
+                className="px-6 py-3 bg-white text-[#08090F] rounded-full font-medium text-base hover:bg-gray-200 transition-colors"
               >
                 {step === demoSteps.length - 1 ? 'Back to Step 1' : ctaCopy[step]}
               </button>
