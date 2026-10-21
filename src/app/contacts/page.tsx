@@ -59,7 +59,7 @@ type StoredCustomColumn = { key: CustomColumnKey; label: string };
 const getCustomColumnsStorageKey = (userEmail: string): string =>
   `custom-columns_${userEmail}`;
 
-type FilterType = 'all' | `group-${string}`;
+type FilterType = 'all' | `group-${string}` | `tag-${string}`;
 
 type SortConfig = {
   key: keyof Contact | CustomColumnKey | null;
@@ -479,6 +479,17 @@ function ContactsContent() {
     return emails;
   }, [displayContacts, groups]);
 
+  // Every tag in use, most common first, capped so the chip row stays sane.
+  const allTags = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of displayContacts) {
+      for (const tag of c.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12);
+  }, [displayContacts]);
+
   // Parse each contact's lastContacted once, not twice per sort comparison.
   const visibleColumns = useMemo(
     () => availableColumnsList.filter(col => activeColumns.includes(col.key)),
@@ -765,6 +776,14 @@ function ContactsContent() {
       const group = groups.find(g => g.id === groupId);
       filteredResults = filteredResults.filter(contact => 
         group?.members.includes(contact.email) ?? false
+      );
+    }
+
+    // Apply tag filter
+    if (activeFilter.startsWith('tag-')) {
+      const tagName = activeFilter.replace('tag-', '');
+      filteredResults = filteredResults.filter(contact =>
+        contact.tags?.includes(tagName) ?? false
       );
     }
 
@@ -1401,6 +1420,21 @@ function ContactsContent() {
                     </div>
                   );
                 })}
+                {loadedGroups && allTags.length > 0 && (
+                  <div className="h-5 w-px bg-gray-200 mx-1 flex-none" aria-hidden="true" />
+                )}
+                {loadedGroups && allTags.map(([tag, count]) => (
+                  <FilterChip
+                    key={`tag-${tag}`}
+                    label={tag}
+                    icon={'Tag' as IconName}
+                    selected={filter === `tag-${tag}`}
+                    onClick={() => handleFilterClick(`tag-${tag}`)}
+                    badge={count}
+                    tooltipContent={`Show contacts tagged ${tag}`}
+                    showSelectedIcon={true}
+                  />
+                ))}
               </div>
             </div>
           </div>
