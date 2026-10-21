@@ -117,7 +117,7 @@ function useGroupsPersistence(userEmail: string | null | undefined) {
   const [loadedGroups, setLoadedGroups] = useState(false);
   
   // Load groups: server first (so they follow the account across devices),
-  // localStorage as the offline/unprovisioned fallback. ALWAYS sets state —
+  // localStorage as the offline/unprovisioned fallback. ALWAYS sets state , 
   // on an account switch that reset is what stops the previous user's
   // groups being re-persisted under the new user's key.
   const loadData = useCallback(async () => {
@@ -641,7 +641,7 @@ function ContactsContent() {
     setLoadedCustomColumns(true);
   }, [session?.user?.email]);
 
-  // Save custom column definitions whenever they change — only after the
+  // Save custom column definitions whenever they change: only after the
   // initial load, so the empty first render can't wipe the stored list.
   useEffect(() => {
     if (!session?.user?.email || !loadedCustomColumns) return;

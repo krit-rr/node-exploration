@@ -13,8 +13,8 @@ interface RelationshipTimelineProps {
 
 export default function RelationshipTimeline({ contacts, timeframe, isExpanded, onToggleExpand }: RelationshipTimelineProps) {
   // One pass over interactions, bucketed by UTC day, memoized on inputs.
-  // (The previous version rescanned every contact for every day — O(days x
-  // contacts x dates) per render — and overwrote the unique-contact count
+  // (The previous version rescanned every contact for every day: O(days x
+  // contacts x dates) per render: and overwrote the unique-contact count
   // with whichever contact it processed last, so "Active Contacts" was
   // always 0 or 1.)
   const timelineData = useMemo(() => {
