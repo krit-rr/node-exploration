@@ -59,7 +59,9 @@ export function aggregateContactsByLatestInteraction(messages: SentMessage[]): C
 
     for (const recipient of message.recipients) {
       const emailAddress = recipient.emailAddress.address.toLowerCase();
-      if (!emailAddress) continue; // Skip invalid email addresses
+      // Skip malformed addresses (e.g. header fragments without an @) so they
+      // can't become phantom contacts
+      if (!emailAddress.includes('@')) continue;
       const name = recipient.emailAddress.name || emailAddress;
 
       // If this contact doesn't exist in our map, or if this message is more
