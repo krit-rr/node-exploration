@@ -7,11 +7,13 @@ import { Icon, IconName } from '@/components/ui';
 interface Props {
   contacts: Contact[];
   className?: string;
+  priorityEmails?: Set<string>;
+  goingColdCount?: number;
   onViewChange?: (view: 'organize' | 'analyze') => void;
 }
 
-export default function NetworkScore({ contacts, onViewChange }: Props) {
-  const baseMetrics = calculateNetworkScore(contacts);
+export default function NetworkScore({ contacts, priorityEmails, goingColdCount, onViewChange }: Props) {
+  const baseMetrics = calculateNetworkScore(contacts, priorityEmails);
   const metrics = getNetworkMetricsExplanation(baseMetrics.metrics);
   
   return (
@@ -36,6 +38,16 @@ export default function NetworkScore({ contacts, onViewChange }: Props) {
                baseMetrics.score >= 50 ? 'Good foundation. Room for strengthening connections.' :
                'Let\'s work on building stronger relationships.'}
             </p>
+            {baseMetrics.metrics.priorityCount > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                Measuring your {baseMetrics.metrics.priorityCount} priority contacts
+              </p>
+            )}
+            {typeof goingColdCount === 'number' && goingColdCount > 0 && (
+              <p className="text-xs font-medium text-[#1E1E3F] mt-1">
+                {goingColdCount} going cold right now
+              </p>
+            )}
           </div>
 
           <div className="h-16 w-px bg-gray-200 hidden lg:block" />

@@ -12,7 +12,7 @@ export interface Contact {
   };
   interactions?: {
     date: string;
-    channel: 'email' | 'message' | 'call';
+    channel: 'email' | 'message' | 'call' | 'meeting' | 'other';
     type: 'sent' | 'received';
     participants?: string[];
     subject?: string;

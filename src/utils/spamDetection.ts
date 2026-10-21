@@ -143,7 +143,7 @@ export const EMAIL_PATTERNS = {
 
 /**
  * Patterns are compiled once at module load (not per contact per render).
- * A plain word pattern must sit on a token boundary of the address —
+ * A plain word pattern must sit on a token boundary of the address , 
  * 'news' matches "news@x.com" and "daily.news" but NOT "northbeam.co" or
  * "newsletter" (which has its own pattern). Patterns carrying their own
  * anchors or @-context (^info@, @mail\.) are used verbatim.
@@ -175,7 +175,7 @@ const SUSPICIOUS_TLDS = ['.xyz', '.top', '.work', '.click', '.link'];
  * Calibrated for this app's data model, which is SENT-ONLY: heuristics
  * about "never replied" or "only received" are meaningless here (every
  * contact is someone the user emailed), so flagging requires positive
- * evidence — address patterns or a suspicious TLD. Weak signals (name
+ * evidence: address patterns or a suspicious TLD. Weak signals (name
  * quality, odd timing) only ever reinforce, never flag on their own.
  */
 export function analyzeContact(contact: Contact): SpamDetectionResult {

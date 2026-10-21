@@ -7,6 +7,8 @@ import TimeframeSelector from '@/components/insights/TimeframeSelector';
 import RelationshipTimeline from '@/components/insights/RelationshipTimeline';
 import SmartInsights from '@/components/insights/SmartInsights';
 import { useContacts } from '@/hooks/useContacts';
+import { useEffect, useMemo } from 'react';
+import { computeReconnectQueue } from '@/utils/reconnect';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ReconnectRail from '@/components/ReconnectRail';
 import toast from 'react-hot-toast';
@@ -40,6 +42,31 @@ export default function InsightsPage() {
   };
 
   const handleSnoozed = () => refetch();
+  const handleTouchLogged = () => refetch();
+
+  // Group members count as priority alongside tagged contacts.
+  const [groupMembers, setGroupMembers] = useState<string[]>([]);
+  useEffect(() => {
+    fetch('/api/groups')
+      .then(r => (r.ok ? r.json() : { groups: [] }))
+      .then(data => setGroupMembers(
+        (Array.isArray(data.groups) ? data.groups : []).flatMap((g: { members?: string[] }) => g.members ?? [])
+      ))
+      .catch(() => {});
+  }, []);
+
+  const priorityEmails = useMemo(() => {
+    const emails = new Set<string>(groupMembers.map(m => m.toLowerCase()));
+    for (const c of contacts) {
+      if (c.tags && c.tags.length > 0) emails.add(c.email.toLowerCase());
+    }
+    return emails;
+  }, [contacts, groupMembers]);
+
+  const goingColdCount = useMemo(
+    () => computeReconnectQueue(contacts, { limit: 50, priorityEmails }).length,
+    [contacts, priorityEmails]
+  );
 
   // AppLayout renders unconditionally: it owns the auth gate, so an early
   // return here would leave signed-out visitors on a spinner forever.
@@ -59,12 +86,20 @@ export default function InsightsPage() {
 
             <div className="space-y-8">
               <ErrorBoundary label="ReconnectRail">
-                <ReconnectRail contacts={contacts} onSnoozed={handleSnoozed} compact />
+                <ReconnectRail
+                  contacts={contacts}
+                  onSnoozed={handleSnoozed}
+                  onTouchLogged={handleTouchLogged}
+                  priorityEmails={priorityEmails}
+                  compact
+                />
               </ErrorBoundary>
 
               <ErrorBoundary label="NetworkScore">
                 <NetworkScore
                   contacts={contacts}
+                  priorityEmails={priorityEmails}
+                  goingColdCount={goingColdCount}
                   onViewChange={setCurrentView}
                 />
               </ErrorBoundary>

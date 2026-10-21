@@ -8,7 +8,7 @@ import { rateLimit } from '@/lib/rateLimit';
 const MAX_PER_RUN = 300;
 
 /**
- * POST /api/contacts/enrich — enrich stored contacts that have no company
+ * POST /api/contacts/enrich: enrich stored contacts that have no company
  * yet and persist the results. Runs out-of-band from contact fetching so
  * /api/contacts never blocks on OpenAI; the client fires this after a sync
  * and refetches when it finishes.

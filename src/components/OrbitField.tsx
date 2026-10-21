@@ -1,6 +1,6 @@
 /**
  * Thin concentric orbit rings rising from below, plus one faint
- * constellation — contacts as stars, the network as the lines between
+ * constellation: contacts as stars, the network as the lines between
  * them. Pure decorative SVG, fixed geometry, no animation.
  */
 export default function OrbitField() {
