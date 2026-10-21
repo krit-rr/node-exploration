@@ -21,6 +21,8 @@ import { IconName } from '@/components/ui/icons/Icon';
 import React from 'react';
 import DomainStats from '@/components/DomainStats';
 import { useContacts, syncContacts, getContactsStorageKey, persistContacts, type ContactsData } from '@/hooks/useContacts';
+import ReconnectRail from '@/components/ReconnectRail';
+import QuickAddModal from '@/components/QuickAddModal';
 import { customKeyForLabel, customFieldKey } from '@/utils/customFields';
 import { useSemanticSearch } from '@/hooks/useSemanticSearch';
 import { Suspense } from 'react';
@@ -223,6 +225,7 @@ function ContactsContent() {
   const debouncedSearch = useDebounce(inputSearch, 200);
   
   const [showGroupModal, setShowGroupModal] = useState(false);
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
   
   // Use the custom hook for groups and filter persistence
   const { groups, setGroups, filter, setFilter, reloadData, loadedGroups } = useGroupsPersistence(userEmail);
@@ -305,7 +308,7 @@ function ContactsContent() {
     'name',
     'email',
     'company',
-    'industry',
+    'tags',
     'lastContacted'
   ]);
   const [availableColumnsList, setAvailableColumnsList] = useState<Column[]>([]);
@@ -528,6 +531,24 @@ function ContactsContent() {
       render: (contact: Contact) => contact.industry || '-'
     },
     {
+      key: 'tags' as ColumnKey,
+      label: 'Tags',
+      description: 'Labels you have put on this contact',
+      render: (contact: Contact) => (
+        <div className="flex flex-wrap gap-1">
+          {(contact.tags ?? []).map(tag => (
+            <span key={tag} className="px-2 py-0.5 text-xs rounded-md bg-[#F4F4FF] text-[#1E1E3F]">{tag}</span>
+          ))}
+        </div>
+      )
+    },
+    {
+      key: 'metAt' as ColumnKey,
+      label: 'Met At',
+      description: 'Where you met this contact',
+      render: (contact: Contact) => contact.metAt || '-'
+    },
+    {
       key: 'lastContacted' as ColumnKey,
       label: 'Last Emailed',
       description: 'Most recent email sent',
@@ -716,6 +737,8 @@ function ContactsContent() {
             contact.name.toLowerCase().includes(term) ||
             contact.email.toLowerCase().includes(term) ||
             (contact.company && contact.company.toLowerCase().includes(term)) ||
+            (contact.tags && contact.tags.some(tag => tag.toLowerCase().includes(term))) ||
+            (contact.metAt && contact.metAt.toLowerCase().includes(term)) ||
             contact.customFields?.some((field: CustomField) => 
               field.value.toLowerCase().includes(term)
             )
@@ -877,6 +900,30 @@ function ContactsContent() {
     },
   });
 
+  // Merge one new/updated contact into cache + localStorage (quick-add, snooze)
+  const mergeContactLocal = useCallback((incoming: Contact) => {
+    queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
+      const existing = oldData?.contacts ?? [];
+      const found = existing.some(c => c.email === incoming.email);
+      const merged = found
+        ? existing.map(c => c.email === incoming.email ? { ...c, ...incoming } : c)
+        : [incoming, ...existing];
+      return session?.user?.email
+        ? persistContacts(session.user.email, merged)
+        : { contacts: merged, lastUpdated: new Date().toISOString() };
+    });
+  }, [queryClient, session?.user?.email]);
+
+  const handleSnoozed = useCallback((email: string, snoozedUntil: string) => {
+    queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
+      const existing = oldData?.contacts ?? [];
+      const merged = existing.map(c => c.email === email ? { ...c, snoozedUntil } : c);
+      return session?.user?.email
+        ? persistContacts(session.user.email, merged)
+        : { contacts: merged, lastUpdated: new Date().toISOString() };
+    });
+  }, [queryClient, session?.user?.email]);
+
   const handleImportComplete = useCallback((newContacts: Contact[]) => {
     queryClient.setQueryData(['sentRecipients', session?.user?.email], (oldData: any) => {
       // Get existing contacts from the query data
@@ -957,33 +1004,32 @@ function ContactsContent() {
     setSearch(debouncedSearch);
   }, [debouncedSearch]);
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#FAFAFA]">
-        <div className="flex flex-col items-center justify-center">
-          <div className="w-16 h-16 relative">
-            <div className="w-16 h-16 rounded-full border-4 border-[#F4F4FF]"></div>
-            <div className="w-16 h-16 rounded-full border-4 border-t-[#1E1E3F] animate-spin absolute inset-0"></div>
-          </div>
-          <h2 className="text-xl font-semibold text-[#1E1E3F] mt-8 mb-2">
-            Organizing Your Network
-          </h2>
-          <p className="text-gray-600 text-center max-w-md">
-            We're analyzing your contacts to provide personalized insights
-          </p>
+  // Loading/error screens render INSIDE AppLayout (see the main return):
+  // an early return here used to bypass the app's only auth gate, leaving
+  // signed-out visitors on this spinner forever instead of redirecting.
+  const loadingScreen = (
+    <div className="min-h-[60vh] flex items-center justify-center">
+      <div className="flex flex-col items-center justify-center">
+        <div className="w-16 h-16 relative">
+          <div className="w-16 h-16 rounded-full border-4 border-[#F4F4FF]"></div>
+          <div className="w-16 h-16 rounded-full border-4 border-t-[#1E1E3F] animate-spin absolute inset-0"></div>
         </div>
+        <h2 className="text-xl font-semibold text-[#1E1E3F] mt-8 mb-2">
+          Organizing Your Network
+        </h2>
+        <p className="text-gray-600 text-center max-w-md">
+          We're analyzing your contacts to provide personalized insights
+        </p>
       </div>
-    );
-  }
+    </div>
+  );
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-red-500 mb-4">⚠️ Error</div>
-        <p className="text-gray-600 dark:text-gray-400">{error instanceof Error ? error.message : 'An unknown error occurred'}</p>
-      </div>
-    );
-  }
+  const errorScreen = (
+    <div className="min-h-[60vh] flex flex-col items-center justify-center">
+      <div className="text-red-500 mb-4">⚠️ Error</div>
+      <p className="text-gray-600">{error instanceof Error ? error.message : 'An unknown error occurred'}</p>
+    </div>
+  );
 
   // Add these calculations before the return statement
   // const { needFollowUp, activeConnectionsPercentage } = calculateMetrics();
@@ -1110,6 +1156,7 @@ function ContactsContent() {
 
   return (
     <AppLayout>
+      {isLoading ? loadingScreen : error ? errorScreen : (
       <div className="w-full">
         <div className="space-y-6 md:space-y-8">
           {/* Enhanced Header Section */}
@@ -1247,11 +1294,20 @@ function ContactsContent() {
                   </button>
                 )}
                 <button
-                  onClick={() => setShowGroupModal(true)}
-                  className="flex items-center gap-2 px-3 md:px-4 py-2 bg-gradient-to-r from-[#1E1E3F] to-[#2D2D5F] text-white rounded-xl hover:opacity-90 transition-all text-sm"
+                  onClick={() => setShowQuickAdd(true)}
+                  className="flex items-center gap-2 px-3 md:px-4 py-2 bg-[#1E1E3F] text-white rounded-lg hover:bg-[#2D2D5F] transition-colors text-sm"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  <span className="hidden md:inline">Add Contact</span>
+                </button>
+                <button
+                  onClick={() => setShowGroupModal(true)}
+                  className="flex items-center gap-2 px-3 md:px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors text-sm"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
                   </svg>
                   <span className="hidden md:inline">Create Group</span>
                 </button>
@@ -1398,6 +1454,9 @@ function ContactsContent() {
             </div>
           )}
 
+          {/* Needs attention: the reconnect queue */}
+          <ReconnectRail contacts={displayContacts} onSnoozed={handleSnoozed} />
+
           {/* Enhanced Table Section */}
           <div className="bg-white rounded-3xl shadow-sm">
             <div className="p-4 flex justify-between border-b border-gray-100">
@@ -1518,6 +1577,12 @@ function ContactsContent() {
         )}
 
         {/* Inbox Cleanup Assistant */}
+        <QuickAddModal
+          isOpen={showQuickAdd}
+          onClose={() => setShowQuickAdd(false)}
+          onAdded={mergeContactLocal}
+        />
+
         {showCleanupAssistant && (
           <InboxCleanupAssistant 
             contacts={contacts}
@@ -1584,6 +1649,7 @@ function ContactsContent() {
           onImportComplete={handleImportComplete}
         />
       </div>
+      )}
     </AppLayout>
   );
 }

@@ -8,6 +8,8 @@ import RelationshipTimeline from '@/components/insights/RelationshipTimeline';
 import SmartInsights from '@/components/insights/SmartInsights';
 import { useContacts } from '@/hooks/useContacts';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import ReconnectRail from '@/components/ReconnectRail';
+import toast from 'react-hot-toast';
 
 export default function InsightsPage() {
   const [selectedTimeframe, setSelectedTimeframe] = useState<'30d' | '90d' | '1y'>('30d');
@@ -17,6 +19,27 @@ export default function InsightsPage() {
   // page loads first primes the cache for the other.
   const { data: contactsData, isLoading, error, refetch } = useContacts();
   const contacts = contactsData?.contacts ?? [];
+
+  // Smart-group clusters become real, account-synced groups.
+  const createGroupFromInsight = async (name: string, members: Set<string>) => {
+    try {
+      const response = await fetch('/api/groups');
+      const data = response.ok ? await response.json() : { groups: [] };
+      const groups = Array.isArray(data.groups) ? data.groups : [];
+      const newGroup = { id: String(Date.now()), name: name.slice(0, 200), members: Array.from(members) };
+      const put = await fetch('/api/groups', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groups: [...groups, newGroup] }),
+      });
+      if (!put.ok) throw new Error(String(put.status));
+      toast.success(`Group "${newGroup.name}" created`);
+    } catch {
+      toast.error('Could not create the group');
+    }
+  };
+
+  const handleSnoozed = () => refetch();
 
   // AppLayout renders unconditionally: it owns the auth gate, so an early
   // return here would leave signed-out visitors on a spinner forever.
@@ -35,6 +58,10 @@ export default function InsightsPage() {
             </div>
 
             <div className="space-y-8">
+              <ErrorBoundary label="ReconnectRail">
+                <ReconnectRail contacts={contacts} onSnoozed={handleSnoozed} compact />
+              </ErrorBoundary>
+
               <ErrorBoundary label="NetworkScore">
                 <NetworkScore
                   contacts={contacts}
@@ -46,7 +73,7 @@ export default function InsightsPage() {
                 {currentView === 'organize' ? (
                   <SmartInsights
                     contacts={contacts}
-                    onGroupCreate={() => {}}
+                    onGroupCreate={createGroupFromInsight}
                   />
                 ) : (
                   <RelationshipTimeline

@@ -383,12 +383,12 @@ const demoSteps = [
     cta: 'Enrich Now',
   },
   {
-    label: 'Export',
+    label: 'Stay in touch',
     video: '/videos/demo-export.mp4',
     poster: '/videos/demo-export-poster.png',
-    title: 'Export Anywhere',
-    value: 'Export to CSV, Google Contacts, or your favorite CRM—so your contacts are always exactly where you need them.',
-    cta: 'Export Now',
+    title: 'Never Go Cold',
+    value: 'Node watches your network for you—when a relationship starts going quiet, it surfaces who to reach out to before the thread goes cold.',
+    cta: 'See Who Needs You',
   }
 ];
 

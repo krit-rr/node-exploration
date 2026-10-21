@@ -26,6 +26,8 @@ type ContactRow = {
   is_spam: boolean;
   source: string | null;
   enriched_by: string | null;
+  met_at: string | null;
+  snoozed_until: string | null;
 };
 
 // Postgres error codes for "relation does not exist" / RLS-off states we
@@ -39,6 +41,25 @@ export function isMissingStore(error: { code?: string; message?: string } | null
 }
 
 const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+
+// The reconnect migration adds met_at / snoozed_until. Until a database has
+// it, PostgREST rejects writes naming those columns (PGRST204 / 42703);
+// strip them and retry so core persistence keeps working pre-migration.
+const NEW_COLUMNS = ['met_at', 'snoozed_until'] as const;
+
+function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === 'PGRST204' || error.code === '42703') {
+    return NEW_COLUMNS.some((c) => (error.message ?? '').includes(c));
+  }
+  return false;
+}
+
+function stripNewColumns<T extends Record<string, unknown>>(row: T): T {
+  const copy = { ...row };
+  for (const column of NEW_COLUMNS) delete (copy as Record<string, unknown>)[column];
+  return copy;
+}
 
 export function rowToContact(row: ContactRow): Contact {
   return {
@@ -59,6 +80,8 @@ export function rowToContact(row: ContactRow): Contact {
       ? row.source
       : undefined) as Contact['provider'],
     enrichedBy: row.enriched_by === 'ai' ? 'ai' : undefined,
+    metAt: row.met_at ?? undefined,
+    snoozedUntil: row.snoozed_until ?? undefined,
     ...(row.is_spam ? { isSpam: true } : {}),
   } as Contact;
 }
@@ -156,14 +179,20 @@ export async function upsertImportedContacts(
     custom_fields: contact.customFields ?? [],
     tags: contact.tags ?? [],
     notes: contact.notes ?? '',
-    source: 'csv_import',
+    met_at: contact.metAt ?? null,
+    source: (contact as Contact & { source?: string }).source ?? 'csv_import',
     enriched_by: contact.enrichedBy ?? null,
     updated_at: now,
   }));
 
-  const { error } = await getSupabaseAdmin()
+  let { error } = await getSupabaseAdmin()
     .from('contacts')
     .upsert(rows, { onConflict: 'owner_email,email', ignoreDuplicates: false });
+  if (error && isMissingColumn(error)) {
+    ({ error } = await getSupabaseAdmin()
+      .from('contacts')
+      .upsert(rows.map(stripNewColumns), { onConflict: 'owner_email,email', ignoreDuplicates: false }));
+  }
   if (error) {
     if (isMissingStore(error)) return { available: false };
     throw new Error(`Failed to upsert imported contacts: ${error.message}`);
@@ -190,16 +219,25 @@ export async function updateContact(
     custom_fields: updated.customFields ?? [],
     tags: updated.tags ?? [],
     notes: updated.notes ?? '',
-    is_spam: Boolean((updated as Contact & { isSpam?: boolean }).isSpam),
+    met_at: updated.metAt ?? null,
+    is_spam: Boolean(updated.isSpam),
     updated_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('contacts')
     .update(patch)
     .eq('owner_email', owner)
     .eq('email', originalEmail.toLowerCase())
     .select('*');
+  if (error && isMissingColumn(error)) {
+    ({ data, error } = await supabase
+      .from('contacts')
+      .update(stripNewColumns(patch))
+      .eq('owner_email', owner)
+      .eq('email', originalEmail.toLowerCase())
+      .select('*'));
+  }
 
   if (error) {
     if (isMissingStore(error)) return { available: false, contact: null };
@@ -264,6 +302,24 @@ export async function applyEnrichment(
     updated++;
   }
   return { available: true, updated };
+}
+
+/** Snooze (or clear: until=null) a contact in the reconnect queue. */
+export async function setSnooze(
+  owner: string,
+  email: string,
+  until: string | null
+): Promise<{ available: boolean }> {
+  const { error } = await getSupabaseAdmin()
+    .from('contacts')
+    .update({ snoozed_until: until, updated_at: new Date().toISOString() })
+    .eq('owner_email', owner)
+    .eq('email', email.toLowerCase());
+  if (error) {
+    if (isMissingStore(error) || isMissingColumn(error)) return { available: false };
+    throw new Error(`Failed to snooze contact: ${error.message}`);
+  }
+  return { available: true };
 }
 
 /** Set/clear spam flags for a batch of emails. */
