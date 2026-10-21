@@ -13,7 +13,7 @@ export default function Error({
       <div className="text-center max-w-md">
         <h1 className="text-2xl font-semibold text-[#1E1E3F] mb-2">Something went wrong</h1>
         <p className="text-gray-600 mb-6">
-          The page hit an unexpected error. Your data is safe — try again, or head back to your contacts.
+          The page hit an unexpected error. Your data is safe. Try again, or head back to your contacts.
         </p>
         <div className="flex justify-center gap-3">
           <button

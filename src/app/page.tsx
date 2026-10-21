@@ -31,8 +31,8 @@ export default function Home() {
     "Get smart insights",
     "Automate your networking",
     "Never miss a follow-up",
-    "Built for busy professionals — not sales spam",
-    "Remember everyone who matters — never drop the ball again",
+    "Built for busy professionals, not sales spam",
+    "Remember everyone who matters. Never drop the ball again",
     "Syncs contacts instantly, no manual import",
     "See all your last conversations at a glance"
   ];
@@ -95,7 +95,7 @@ export default function Home() {
               transition={{ duration: 0.7, delay: 0.5, type: 'spring' }}
             >
               <p className="text-lg text-gray-400 font-normal tracking-wide leading-relaxed">
-                Node remembers who you met — and tells you who&apos;s going cold.
+                Node remembers who you met and tells you who&apos;s going cold.
               </p>
             </motion.div>
             
@@ -265,7 +265,7 @@ const demoSteps = [
     label: 'Import',
     loomEmbed: 'https://www.loom.com/embed/2ec8d07482e74cfd8064bc406e0d3325',
     title: 'Import in Seconds',
-    value: 'Connect Gmail or upload CSV—your contacts appear instantly.',
+    value: 'Connect Gmail or upload CSV. Your contacts appear instantly.',
     cta: 'Import Now',
   },
   {
@@ -273,7 +273,7 @@ const demoSteps = [
     video: '/videos/demo-clean.mp4',
     poster: '/videos/demo-clean-poster.png',
     title: 'Clean Instantly',
-    value: 'Node merges duplicates, fixes names, and removes spam—so your network is always up to date.',
+    value: 'Node merges duplicates, fixes names, and removes spam, so your network is always up to date.',
     cta: 'Clean Now',
   },
   {
@@ -281,7 +281,7 @@ const demoSteps = [
     video: '/videos/demo-enrich.mp4',
     poster: '/videos/demo-enrich-poster.png',
     title: 'Enrich Effortlessly',
-    value: 'See company, title, and more added automatically—so you always have the full picture.',
+    value: 'See company, title, and more added automatically, so you always have the full picture.',
     cta: 'Enrich Now',
   },
   {
@@ -289,7 +289,7 @@ const demoSteps = [
     video: '/videos/demo-export.mp4',
     poster: '/videos/demo-export-poster.png',
     title: 'Export Anywhere',
-    value: 'Export to CSV, Google Contacts, or your favorite CRM—so your contacts are always exactly where you need them.',
+    value: 'Export to CSV, Google Contacts, or your favorite CRM, so your contacts are always exactly where you need them.',
     cta: 'Export Now',
   }
 ];

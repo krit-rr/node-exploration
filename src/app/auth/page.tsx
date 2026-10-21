@@ -45,7 +45,7 @@ export default function Auth() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                <span className="text-sm">Only <span className="font-semibold text-[#1E1E3F]">basic email headers</span> — no content or subjects</span>
+                <span className="text-sm">Only <span className="font-semibold text-[#1E1E3F]">email headers, subjects and short previews</span>, never full messages</span>
               </div>
               <div className="flex items-center gap-3">
                 <div className={`w-5 h-5 rounded-full bg-green-50 flex items-center justify-center flex-shrink-0 transition-transform duration-500 delay-100 ${isLoaded ? 'scale-100' : 'scale-0'}`}>
@@ -107,7 +107,7 @@ export default function Auth() {
                 </div>
                 <div className="flex flex-col items-start">
                   <span className="font-medium">View Data Details</span>
-                  <span className="text-xs text-[#1E1E3F]/60">See what we access — and what we don't</span>
+                  <span className="text-xs text-[#1E1E3F]/60">See what we access and what we don't</span>
                 </div>
                 <svg className="w-3.5 h-3.5 ml-auto text-[#1E1E3F]/40 group-hover:translate-x-1 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -267,7 +267,7 @@ export default function Auth() {
                     <span className="text-red-500 mr-2 flex-shrink-0">✗</span>
                     <div>
                       <span className="font-medium">Full email bodies</span>
-                      <p className="text-sm text-gray-600">We receive only the subject line and a short preview snippet (about 100 characters) of emails you sent — never the full message</p>
+                      <p className="text-sm text-gray-600">We receive only the subject line and a short preview snippet (about 100 characters) of emails you sent, never the full message</p>
                     </div>
                   </li>
                   <li className="flex items-start">
@@ -338,7 +338,7 @@ export default function Auth() {
                     <code>format: 'metadata',</code><br/>
                     <code>metadataHeaders: ['From', 'To', 'Cc', 'Bcc', 'Date', 'Subject']</code>
                   </div>
-                  <p>The <span className="font-semibold">format: 'metadata'</span> parameter means we <span className="text-red-600 font-semibold">never</span> receive message bodies — only the headers listed above plus Gmail's short preview snippet, which powers search.</p>
+                  <p>The <span className="font-semibold">format: 'metadata'</span> parameter means we <span className="text-red-600 font-semibold">never</span> receive message bodies, only the headers listed above plus Gmail's short preview snippet, which powers search.</p>
                 </div>
               </div>
 
