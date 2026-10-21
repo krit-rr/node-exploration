@@ -108,7 +108,7 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn }:
             <motion.h2 
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              className="text-2xl font-semibold bg-gradient-to-r from-[#1E1E3F] to-[#2D2D5F] bg-clip-text text-transparent"
+              className="text-2xl font-semibold text-[#1E1E3F]"
             >
               Contact Details
             </motion.h2>

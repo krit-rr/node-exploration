@@ -3,6 +3,11 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import WaitlistPill from '@/components/WaitlistPill';
+import Starfield from '@/components/Starfield';
+import OrbitField from '@/components/OrbitField';
+import { Instrument_Serif } from 'next/font/google';
+
+const instrumentSerif = Instrument_Serif({ weight: '400', style: 'italic', subsets: ['latin'] });
 import { ArrowRight } from 'lucide-react';
 
 const NODE_LAUNCH_MODE = process.env.NEXT_PUBLIC_NODE_LAUNCH_MODE || 'waitlist';
@@ -26,8 +31,8 @@ export default function Home() {
     "Get smart insights",
     "Automate your networking",
     "Never miss a follow-up",
-    "Built for busy professionals — not sales spam",
-    "Remember everyone who matters — never drop the ball again",
+    "Built for busy professionals, not sales spam",
+    "Remember everyone who matters. Never drop the ball again",
     "Syncs contacts instantly, no manual import",
     "See all your last conversations at a glance"
   ];
@@ -40,17 +45,17 @@ export default function Home() {
   }, []);
 
   return (
-    <div>
+    <div className="min-h-screen bg-[#08090F] text-white">
       {/* Navigation */}
-      <nav className={`fixed w-full z-50 transition-all duration-300 ${scrolled ? 'bg-white/80 backdrop-blur-md py-2' : 'bg-transparent py-4'}`}>
+      <nav className={`fixed w-full z-50 transition-all duration-300 ${scrolled ? 'bg-[#08090F]/95 border-b border-white/10 py-2' : 'bg-transparent py-4'}`}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex justify-between items-center">
-            <Link href="/" className={`text-2xl font-bold transition-transform hover:scale-105 ${scrolled ? 'text-[#1E1E3F]' : 'text-white'}`}>Node</Link>
+            <Link href="/" className="text-xl font-semibold tracking-wide text-white"><span className="mr-1.5 text-white/80">✦</span>Node</Link>
             <div className="hidden md:flex items-center space-x-8">
               {NODE_LAUNCH_MODE === 'live' ? (
                 <Link 
                   href="/auth" 
-                  className="px-5 py-2 bg-white/80 text-[#1E1E3F] rounded-full font-medium text-base shadow-sm hover:bg-white/90 transition-all duration-200 border border-[#e5e5f7]"
+                  className="px-5 py-2 bg-white text-[#14172B] rounded-lg font-medium text-base hover:bg-gray-100 transition-colors"
                 >
                   Sign In
                 </Link>
@@ -62,23 +67,10 @@ export default function Home() {
 
       {/* Hero Section */}
       <section className="flex flex-col items-center justify-center min-h-screen px-4 pt-24 bg-transparent text-center relative overflow-hidden hero-content">
-        {/* Animated background blobs and radial spotlight */}
-        <div className="absolute inset-0 w-full h-full pointer-events-none z-0">
-          <div className="absolute left-1/2 top-1/3 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[480px] rounded-full opacity-60 blur-2xl" style={{background: 'radial-gradient(ellipse at center, #a259ff33 0%, #43e7ad22 60%, transparent 100%)'}} />
-          <motion.div
-            className="absolute left-[20%] top-[30%] w-[420px] h-[240px] rounded-full opacity-40 blur-3xl"
-            style={{background: 'linear-gradient(135deg, #ff65d3 0%, #7e6aff 100%)'}}
-            animate={{ y: [0, 30, 0] }}
-            transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
-          />
-          <motion.div
-            className="absolute right-[10%] bottom-[18%] w-[360px] h-[200px] rounded-full opacity-30 blur-2xl"
-            style={{background: 'linear-gradient(135deg, #30cfd0 0%, #7e6aff 100%)'}}
-            animate={{ y: [0, -24, 0] }}
-            transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut' }}
-          />
+        <div className="absolute inset-0 z-0" aria-hidden="true">
+          <Starfield />
+          <OrbitField />
         </div>
-
         <div className="w-full max-w-6xl mx-auto z-10 flex flex-col items-center justify-center gap-6 xl:gap-8 px-4">
           {/* Text + CTA */}
           <div className="flex flex-col items-center text-center max-w-3xl">
@@ -89,8 +81,10 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, type: 'spring', delay: 0.1 }}
             >
-              <h1 className="text-5xl sm:text-6xl md:text-7xl font-bold leading-[1.1] tracking-tight text-white mb-2">
-                Organize your network. <span className="bg-gradient-to-r from-[#ff65d3] to-[#7e6aff] bg-clip-text text-transparent">In seconds.</span>
+              <p className="font-mono text-[11px] tracking-[0.3em] uppercase text-white/40 mb-5">✦ Your network, mapped</p>
+              <h1 className="text-5xl sm:text-6xl md:text-7xl font-semibold leading-[1.08] tracking-tight text-white mb-2">
+                Organize your network.<br />
+                <span className={`${instrumentSerif.className} font-normal text-white/80`}>Actually keep up with people.</span>
               </h1>
             </motion.div>
 
@@ -100,11 +94,8 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, delay: 0.5, type: 'spring' }}
             >
-              <p className="text-xl text-gray-300 font-normal tracking-wide leading-relaxed">
-                Import once. Stay connected forever.
-              </p>
-              <p className="text-lg text-gray-400 font-light tracking-wide">
-                No spreadsheets. No guesswork.
+              <p className="text-lg text-gray-400 font-normal tracking-wide leading-relaxed">
+                Node remembers who you met and tells you who&apos;s going cold.
               </p>
             </motion.div>
             
@@ -139,18 +130,12 @@ export default function Home() {
                 <>
                   <motion.a
                     href="/auth"
-                    className="px-10 py-5 bg-gradient-to-br from-[#ff65d3] via-[#7e6aff] to-[#30cfd0] text-white font-extrabold rounded-full flex items-center gap-2 shadow-xl hover:scale-[1.02] hover:brightness-110 hover:shadow-[0_0_24px_0_rgba(255,101,211,0.24)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#7e6aff] border border-[#cba8fe70] transition-all duration-200 text-2xl relative overflow-hidden group"
+                    className="px-6 py-3 bg-white text-[#08090F] font-medium rounded-full text-base flex items-center gap-2 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-[#08090F] transition-colors"
                     initial={{ opacity: 0, y: 24 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.7, delay: 0.8, type: 'spring' }}
-                  >
-                    <motion.span 
-                      className="mr-1 text-2xl"
-                      animate={{ rotate: [0, 10, -10, 0] }}
-                      transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}
-                    >✨</motion.span> Get Started Free
+                  > Get Started Free
                     <ArrowRight className="ml-2 -mr-1" size={28} strokeWidth={2.2} />
-                    <span className="absolute left-0 top-0 w-full h-full rounded-full pointer-events-none group-hover:animate-shimmer bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{backgroundSize: '200% 100%'}} />
                   </motion.a>
                   <motion.a
                     href="#demo"
@@ -185,13 +170,6 @@ export default function Home() {
 
       {/* CONVERSION CTA SECTION */}
       <section className="flex flex-col items-center justify-center py-32 pb-12 px-4 bg-transparent relative">
-        {/* Faint radial gradient behind card */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
-          <div className="w-[520px] h-[320px] rounded-full mx-auto" style={{
-            background: 'radial-gradient(ellipse at center, rgba(255,255,255,0.03), transparent 80%)',
-            filter: 'blur(2px)',
-          }} />
-        </div>
         <div className="w-full max-w-xl mx-auto text-center relative z-10">
           {NODE_LAUNCH_MODE === 'waitlist' ? (
             <div className="w-full flex justify-center">
@@ -207,112 +185,36 @@ export default function Home() {
               whileInView={{ opacity: 1, y: 0, scale: 1 }}
               viewport={{ once: true, amount: 0.7 }}
               transition={{ duration: 0.7, type: 'spring', stiffness: 80, damping: 18 }}
-              className="bg-[#1b1e2c] backdrop-blur-xl rounded-2xl shadow-2xl shadow-purple-600/20 ring-1 ring-white/10 border border-white/10 px-8 py-10 flex flex-col items-center gap-4 mx-auto max-w-lg"
-              style={{ boxShadow: '0 8px 44px 0 #15122b7a, 0 3px 18px 0 #ea51af34, 0 0px 2px 0 #30cacb34', border: '1px solid rgba(255,255,255,0.10)', backdropFilter: 'blur(10px)' }}
+              className="bg-[#0E1018] rounded-xl border border-white/10 px-8 py-10 flex flex-col items-center gap-4 mx-auto max-w-lg"
             >
               <h3 className="text-2xl font-bold text-white mb-4">Ready to clean up your network?</h3>
               <div className="w-full flex flex-col items-center">
                 <Link 
                   href="/auth" 
-                  className="px-10 py-5 bg-gradient-to-br from-[#ff65d3] via-[#7e6aff] to-[#30cfd0] text-white font-extrabold rounded-full flex items-center gap-2 shadow-lg hover:scale-105 hover:shadow-[0_0_24px_0_rgba(255,101,211,0.24)] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#7e6aff] border border-[#cba8fe70] transition-all duration-200 text-2xl relative overflow-hidden group"
+                  className="px-6 py-3 bg-white text-[#08090F] font-medium rounded-full text-base flex items-center gap-2 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-white/40 focus:ring-offset-2 focus:ring-offset-[#08090F] transition-colors"
                 >
-                  <span className="mr-1 text-2xl">✨</span> Clean My Network
+                  Clean My Network
                   <ArrowRight className="ml-2 -mr-1" size={28} strokeWidth={2.2} />
-                  <span className="absolute left-0 top-0 w-full h-full rounded-full pointer-events-none group-hover:animate-shimmer bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{backgroundSize: '200% 100%'}} />
                 </Link>
               </div>
-              <div className="text-xs mt-2 font-medium tracking-wide opacity-75" style={{ color: '#d6aaff' }}>Join 500+ professionals already using Node</div>
             </motion.div>
           )}
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="py-8 bg-white mt-0 relative">
-        {/* Gradient border */}
-        <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[#a259ff]/20 to-transparent" />
-        <div className="max-w-6xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-[#a259ff] font-bold text-lg">Node</span>
-            <span className="text-gray-400 text-sm">Your Network, Organized.</span>
-          </div>
+      <footer className="py-8 relative">
+        <div className="absolute top-0 left-0 right-0 h-[1px] bg-white/10" />
+        <div className="max-w-6xl mx-auto px-4 flex justify-between items-center">
+          <span className="text-white font-semibold"><span className="mr-1.5 text-white/80">✦</span>Node</span>
           <div className="flex space-x-6">
-            <Link href="/privacy" className="text-sm text-gray-500 hover:text-[#a259ff] transition-colors font-light tracking-wide">Privacy</Link>
-            <Link href="/terms" className="text-sm text-gray-500 hover:text-[#a259ff] transition-colors font-light tracking-wide">Terms</Link>
+            <Link href="/privacy" className="text-sm text-gray-500 hover:text-white transition-colors">Privacy</Link>
+            <Link href="/terms" className="text-sm text-gray-500 hover:text-white transition-colors">Terms</Link>
           </div>
-          <div className="text-xs text-gray-400 mt-2 md:mt-0">Made with <span className="text-pink-400">♥</span> by the Node team</div>
         </div>
       </footer>
 
       <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
-        body {
-          background: linear-gradient(135deg, #181c2a 0%, #232946 100%);
-          min-height: 100vh;
-          scroll-behavior: smooth;
-        }
-        * {
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-          -webkit-font-smoothing: antialiased;
-          -moz-osx-font-smoothing: grayscale;
-        }
-        h1, h2, h3, h4, h5, h6 {
-          letter-spacing: -0.02em;
-          font-weight: 700;
-        }
-        p, span, a, button, input, select {
-          letter-spacing: 0.01em;
-        }
-        .font-light { font-weight: 300; }
-        .font-normal { font-weight: 400; }
-        .font-medium { font-weight: 500; }
-        .font-semibold { font-weight: 600; }
-        .font-bold { font-weight: 700; }
-        h1 { font-size: 3.5rem; line-height: 1.1; letter-spacing: -0.03em; }
-        h2 { font-size: 2.5rem; line-height: 1.2; letter-spacing: -0.02em; }
-        h3 { font-size: 1.75rem; line-height: 1.3; letter-spacing: -0.01em; }
-        p { line-height: 1.6; }
-        .text-xl { line-height: 1.5; }
-        nav a, button { font-weight: 500; letter-spacing: -0.01em; }
-        /* Premium glassy card */
-        .glass-card {
-          background: rgba(255,255,255,0.85);
-          box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.18);
-          backdrop-filter: blur(12px);
-          border-radius: 2rem;
-          border: 1px solid rgba(255,255,255,0.18);
-        }
-        /* Vibrant accent gradient */
-        .accent-gradient {
-          background: linear-gradient(90deg, #a259ff 0%, #43e7ad 100%);
-        }
-        /* Animated shimmer for buttons */
-        .shimmer {
-          background: linear-gradient(90deg, #a259ff 0%, #43e7ad 50%, #a259ff 100%);
-          background-size: 200% 100%;
-          animation: shimmer 2s linear infinite;
-        }
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-        /* Subtle background grid */
-        .bg-grid {
-          background-image: linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
-          background-size: 40px 40px;
-        }
-        /* Add this to your global CSS for slow spin: */
-        .animate-spin-slow { animation: spin 2.5s linear infinite; }
-        .group-hover\:animate-shimmer:hover {
-          animation: shimmer 1.2s linear;
-        }
-        @keyframes shimmer {
-          0% { background-position: -200% 0; opacity: 0.2; }
-          50% { background-position: 200% 0; opacity: 0.5; }
-          100% { background-position: 200% 0; opacity: 0; }
-        }
-
         /* Mobile optimizations */
         @media (max-width: 768px) {
           .hero-content {
@@ -363,7 +265,7 @@ const demoSteps = [
     label: 'Import',
     loomEmbed: 'https://www.loom.com/embed/2ec8d07482e74cfd8064bc406e0d3325',
     title: 'Import in Seconds',
-    value: 'Connect Gmail or upload CSV—your contacts appear instantly.',
+    value: 'Connect Gmail or upload CSV. Your contacts appear instantly.',
     cta: 'Import Now',
   },
   {
@@ -371,7 +273,7 @@ const demoSteps = [
     video: '/videos/demo-clean.mp4',
     poster: '/videos/demo-clean-poster.png',
     title: 'Clean Instantly',
-    value: 'Node merges duplicates, fixes names, and removes spam—so your network is always up to date.',
+    value: 'Node merges duplicates, fixes names, and removes spam, so your network is always up to date.',
     cta: 'Clean Now',
   },
   {
@@ -379,7 +281,7 @@ const demoSteps = [
     video: '/videos/demo-enrich.mp4',
     poster: '/videos/demo-enrich-poster.png',
     title: 'Enrich Effortlessly',
-    value: 'See company, title, and more added automatically—so you always have the full picture.',
+    value: 'See company, title, and more added automatically, so you always have the full picture.',
     cta: 'Enrich Now',
   },
   {
@@ -387,7 +289,7 @@ const demoSteps = [
     video: '/videos/demo-export.mp4',
     poster: '/videos/demo-export-poster.png',
     title: 'Never Go Cold',
-    value: 'Node watches your network for you—when a relationship starts going quiet, it surfaces who to reach out to before the thread goes cold.',
+    value: 'Node watches your network for you. When a relationship starts going quiet, it surfaces who to reach out to before the thread goes cold.',
     cta: 'See Who Needs You',
   }
 ];
@@ -395,7 +297,7 @@ const demoSteps = [
 // Simple, elegant active pill
 const pillActiveSimple = [
   'relative',
-  'bg-[#a259ff]', // solid accent color
+  'bg-white/40', // neutral accent
   'shadow-md',
   'scale-105',
   'transition-all duration-200',
@@ -488,20 +390,20 @@ function GuidedDemoWalkthrough() {
   const placeholderAnimation = (
     <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" className="mx-auto">
       <circle cx="60" cy="60" r="54" stroke="#4f5b93" strokeWidth="8" opacity="0.2" />
-      <circle cx="60" cy="60" r="54" stroke="#a259ff" strokeWidth="8" strokeDasharray="339.292" strokeDashoffset="80" />
+      <circle cx="60" cy="60" r="54" stroke="rgba(255,255,255,0.35)" strokeWidth="8" strokeDasharray="339.292" strokeDashoffset="80" />
       <circle cx="60" cy="60" r="40" fill="#232946" />
-      <rect x="40" y="55" width="40" height="10" rx="5" fill="#a259ff" />
-      <rect x="50" y="70" width="20" height="6" rx="3" fill="#43e7ad" />
+      <rect x="40" y="55" width="40" height="10" rx="5" fill="rgba(255,255,255,0.55)" />
+      <rect x="50" y="70" width="20" height="6" rx="3" fill="rgba(255,255,255,0.3)" />
     </svg>
   );
 
   // Stepper pill styles
   const pillBase =
-    'flex flex-col items-center px-4 py-2 rounded-full font-semibold text-base transition-all duration-400 focus:outline-none cursor-pointer relative';
+    'flex flex-col items-center px-4 py-2 rounded-md font-medium text-base transition-colors focus:outline-none cursor-pointer relative';
   const pillInactive =
-    'bg-white/5 text-gray-400 border border-[#2d3147] hover:bg-[#232946]/30 hover:text-white';
+    'bg-transparent text-gray-400 border border-white/10 hover:text-white hover:border-white/25';
   const pillCompleted =
-    'bg-gradient-to-r from-[#43e7ad]/10 to-[#a259ff]/10 text-[#43e7ad] border border-[#43e7ad]';
+    'bg-white/5 text-white border border-white/30';
 
   return (
     <div className="w-full flex flex-col md:flex-row md:items-start md:justify-center gap-8 md:gap-12">
@@ -550,7 +452,7 @@ function GuidedDemoWalkthrough() {
         {/* Progress Bar (top on mobile, hidden on desktop) */}
         <div className="w-full max-w-lg h-2 bg-[#232946] rounded-full mb-4 overflow-hidden md:hidden">
           <motion.div
-            className="h-full bg-gradient-to-r from-[#4f5b93] to-[#a259ff]"
+            className="h-full bg-white/40"
             variants={progressVariants}
             initial="initial"
             animate="animate"
@@ -625,14 +527,14 @@ function GuidedDemoWalkthrough() {
                 <button
                   onClick={prev}
                   aria-label="Previous step"
-                  className="px-6 py-3 bg-gradient-to-r from-[#232946] to-[#3a3f5a] text-white rounded-full font-semibold text-base shadow-md hover:scale-105 transition-all duration-400 border border-[#4f5b93]"
+                  className="px-6 py-3 bg-white/10 text-white rounded-lg font-medium text-base hover:bg-white/15 transition-colors border border-white/15"
                 >
                   ← Previous
                 </button>
               )}
               <button
                 onClick={next}
-                className="px-8 py-4 bg-gradient-to-r from-[#232946] to-[#3a3f5a] text-white rounded-full font-semibold text-lg shadow-md hover:scale-105 transition-all duration-400 border border-[#4f5b93]"
+                className="px-6 py-3 bg-white text-[#08090F] rounded-full font-medium text-base hover:bg-gray-200 transition-colors"
               >
                 {step === demoSteps.length - 1 ? 'Back to Step 1' : ctaCopy[step]}
               </button>
