@@ -8,18 +8,18 @@
 }
 
 html, body {
-  background: linear-gradient(135deg, #181c2a 0%, #232946 100%) !important;
+  background: #FAFAFA;
   min-height: 100vh;
   color: #1E1E3F;
 }
 
 @layer components {
   .btn-primary {
-    @apply px-6 py-3 bg-[#1E1E3F] text-white rounded-full hover:bg-[#2D2D5F] transition-all;
+    @apply px-6 py-3 bg-[#1E1E3F] text-white rounded-lg hover:bg-[#2D2D5F] transition-colors;
   }
   
   .btn-secondary {
-    @apply px-6 py-3 border border-gray-200 rounded-full hover:bg-gray-50 transition-all;
+    @apply px-6 py-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors;
   }
 }
 
