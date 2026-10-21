@@ -4,7 +4,11 @@ import { GmailClient } from "@/lib/gmail-client";
 import { getToken } from "next-auth/jwt";
 import { Contact } from "@/types";
 import { enrichBatchViaAI } from "@/utils/enrichBatchViaAI";
-import { listContacts, mergeProviderContacts } from "@/lib/contactsStore";
+import { listContacts, mergeProviderContacts, upsertImportedContacts } from "@/lib/contactsStore";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 import { rateLimit } from "@/lib/rateLimit";
 
 type Provider = 'google' | 'microsoft-entra-id';
@@ -135,5 +139,51 @@ export async function GET(request: NextRequest) {
       { error: "Failed to fetch contacts" },
       { status: 500 }
     );
+  }
+}
+
+
+/** POST /api/contacts — quick-add one contact (the hallway capture path). */
+export async function POST(request: Request) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const body = await request.json();
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!EMAIL_RE.test(email) || !name) {
+      return NextResponse.json({ error: 'Name and a valid email are required' }, { status: 400 });
+    }
+
+    const now = new Date().toISOString();
+    const contact: Contact = {
+      id: email,
+      name,
+      email,
+      lastContacted: now,
+      sentDates: [],
+      interactions: [],
+      metAt: typeof body.metAt === 'string' && body.metAt.trim() ? body.metAt.trim().slice(0, 200) : undefined,
+      notes: typeof body.notes === 'string' ? body.notes.slice(0, 2000) : '',
+      tags: Array.isArray(body.tags)
+        ? body.tags.filter((t: unknown) => typeof t === 'string' && t).map((t: string) => t.trim().slice(0, 50)).slice(0, 20)
+        : [],
+    };
+    (contact as Contact & { source?: string }).source = 'manual';
+
+    let persisted = false;
+    try {
+      persisted = (await upsertImportedContacts(session.user.email.toLowerCase(), [contact])).available;
+    } catch (error) {
+      console.error('Quick-add persistence failed (returning unpersisted):', error);
+    }
+
+    return NextResponse.json({ ...contact, persisted }, { status: 201 });
+  } catch (error) {
+    console.error('Error adding contact:', error);
+    return NextResponse.json({ error: 'Failed to add contact' }, { status: 500 });
   }
 }

@@ -34,6 +34,8 @@ export interface Contact {
   notes?: string;
   provider?: 'google' | 'microsoft-entra-id';
   isSpam?: boolean;
+  metAt?: string;
+  snoozedUntil?: string;
   enrichedBy?: 'ai';
 }
 

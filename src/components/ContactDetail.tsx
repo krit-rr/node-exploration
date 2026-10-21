@@ -26,6 +26,7 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn }:
     ...contact,
     customFields: contact.customFields || []
   });
+  const [tagDraft, setTagDraft] = useState('');
   const [customFields, setCustomFields] = useState<CustomField[]>(
     contact.customFields || []
   );
@@ -180,6 +181,68 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn }:
               />
             </motion.div>
             
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.35 }}
+              className="group"
+            >
+              <label className="block text-sm font-medium text-gray-700 mb-2 group-hover:text-[#1E1E3F] transition-colors">
+                Where You Met
+              </label>
+              <input
+                type="text"
+                value={editedContact.metAt || ''}
+                onChange={(e) => handleInputChange('metAt', e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#1E1E3F] focus:ring focus:ring-[#1E1E3F]/20 transition-all"
+                placeholder="e.g. SF Climate Summit, intro from Claire..."
+              />
+            </motion.div>
+
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.38 }}
+              className="group"
+            >
+              <label className="block text-sm font-medium text-gray-700 mb-2 group-hover:text-[#1E1E3F] transition-colors">
+                Tags
+              </label>
+              <div className="flex flex-wrap items-center gap-2 w-full px-3 py-2.5 rounded-xl border border-gray-200 focus-within:border-[#1E1E3F] focus-within:ring focus-within:ring-[#1E1E3F]/20 transition-all">
+                {(editedContact.tags ?? []).map(tag => (
+                  <span key={tag} className="flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-[#F4F4FF] text-[#1E1E3F]">
+                    {tag}
+                    <button
+                      type="button"
+                      aria-label={`Remove tag ${tag}`}
+                      onClick={() => setEditedContact(prev => ({ ...prev, tags: (prev.tags ?? []).filter(t => t !== tag) }))}
+                      className="text-[#1E1E3F]/50 hover:text-[#1E1E3F]"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <input
+                  type="text"
+                  value={tagDraft}
+                  onChange={(e) => setTagDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if ((e.key === 'Enter' || e.key === ',') && tagDraft.trim()) {
+                      e.preventDefault();
+                      const tag = tagDraft.trim();
+                      setEditedContact(prev => ({
+                        ...prev,
+                        tags: (prev.tags ?? []).includes(tag) ? prev.tags : [...(prev.tags ?? []), tag],
+                      }));
+                      setTagDraft('');
+                    }
+                  }}
+                  className="flex-1 min-w-[120px] text-sm focus:outline-none"
+                  placeholder={(editedContact.tags ?? []).length ? 'Add another…' : 'investor, climate, follow-up…'}
+                />
+              </div>
+            </motion.div>
+
             <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
