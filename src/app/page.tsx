@@ -83,7 +83,8 @@ export default function Home() {
             >
               <p className="font-mono text-[11px] tracking-[0.3em] uppercase text-white/40 mb-5">✦ Your network, mapped</p>
               <h1 className="text-5xl sm:text-6xl md:text-7xl font-semibold leading-[1.08] tracking-tight text-white mb-2">
-                Organize your <span className={`${instrumentSerif.className} font-normal`}>network</span>. <span className="text-white/50">In seconds.</span>
+                Organize your network.<br />
+                <span className={`${instrumentSerif.className} font-normal text-white/80`}>Actually keep up with people.</span>
               </h1>
             </motion.div>
 
@@ -93,11 +94,8 @@ export default function Home() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, delay: 0.5, type: 'spring' }}
             >
-              <p className="text-xl text-gray-300 font-normal tracking-wide leading-relaxed">
-                Import once. Stay connected forever.
-              </p>
-              <p className="text-lg text-gray-400 font-light tracking-wide">
-                No spreadsheets. No guesswork.
+              <p className="text-lg text-gray-400 font-normal tracking-wide leading-relaxed">
+                Node remembers who you met — and tells you who&apos;s going cold.
               </p>
             </motion.div>
             
@@ -199,26 +197,20 @@ export default function Home() {
                   <ArrowRight className="ml-2 -mr-1" size={28} strokeWidth={2.2} />
                 </Link>
               </div>
-              <div className="text-xs mt-2 font-medium tracking-wide opacity-75" style={{ color: '#d6aaff' }}>Join 500+ professionals already using Node</div>
             </motion.div>
           )}
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="py-8 bg-white mt-0 relative">
-        {/* Gradient border */}
+      <footer className="py-8 relative">
         <div className="absolute top-0 left-0 right-0 h-[1px] bg-white/10" />
-        <div className="max-w-6xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-white font-bold text-lg">Node</span>
-            <span className="text-gray-400 text-sm">Your Network, Organized.</span>
-          </div>
+        <div className="max-w-6xl mx-auto px-4 flex justify-between items-center">
+          <span className="text-white font-semibold"><span className="mr-1.5 text-white/80">✦</span>Node</span>
           <div className="flex space-x-6">
-            <Link href="/privacy" className="text-sm text-gray-500 hover:text-white transition-colors font-light tracking-wide">Privacy</Link>
-            <Link href="/terms" className="text-sm text-gray-500 hover:text-white transition-colors font-light tracking-wide">Terms</Link>
+            <Link href="/privacy" className="text-sm text-gray-500 hover:text-white transition-colors">Privacy</Link>
+            <Link href="/terms" className="text-sm text-gray-500 hover:text-white transition-colors">Terms</Link>
           </div>
-          <div className="text-xs text-gray-400 mt-2 md:mt-0">Made with <span className="text-white/50">♥</span> by the Node team</div>
         </div>
       </footer>
 
