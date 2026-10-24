@@ -8,6 +8,7 @@ import Pagination from './Pagination';
 
 interface ContactTableProps {
   contacts: Contact[];
+  onBulkTag?: (emails: string[], tag: string) => void;
   columns: {
     key: string;
     label: string;
@@ -130,6 +131,7 @@ function ShortcutsGuide({ visible }: { visible: boolean; isKeyboardActive: boole
 export default function ContactTable({
   contacts,
   columns,
+  onBulkTag,
   onContactClick,
   currentPage,
   itemsPerPage,
@@ -157,7 +159,8 @@ export default function ContactTable({
     value: string;
   } | null>(null);
   
-  const [selectedRows] = useState<Set<string>>(new Set());
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [bulkTagInput, setBulkTagInput] = useState('');
   const [focusedCell, setFocusedCell] = useState<{
     contactId: string;
     field: string;
@@ -672,6 +675,35 @@ export default function ContactTable({
     }));
   };
 
+  const toggleRowSelected = (email: string) => {
+    setSelectedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(email)) next.delete(email);
+      else next.add(email);
+      return next;
+    });
+  };
+
+  const allOnPageSelected = paginatedContacts.length > 0 &&
+    paginatedContacts.every(c => selectedRows.has(c.email));
+
+  const toggleSelectPage = () => {
+    setSelectedRows(prev => {
+      const next = new Set(prev);
+      if (allOnPageSelected) paginatedContacts.forEach(c => next.delete(c.email));
+      else paginatedContacts.forEach(c => next.add(c.email));
+      return next;
+    });
+  };
+
+  const submitBulkTag = () => {
+    const tag = bulkTagInput.trim();
+    if (!tag || selectedRows.size === 0 || !onBulkTag) return;
+    onBulkTag(Array.from(selectedRows), tag);
+    setBulkTagInput('');
+    setSelectedRows(new Set());
+  };
+
   // Detect mouse interaction to toggle keyboard mode off
   const handleMouseInteraction = () => {
     setIsKeyboardActive(false);
@@ -679,6 +711,37 @@ export default function ContactTable({
 
   return (
     <div className="relative" onClick={handleMouseInteraction}>
+      {onBulkTag && selectedRows.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 mb-2 bg-[#F4F4FF] rounded-lg">
+          <span className="text-sm font-medium text-[#1E1E3F]">
+            {selectedRows.size} selected
+          </span>
+          <form
+            onSubmit={(e) => { e.preventDefault(); submitBulkTag(); }}
+            className="flex items-center gap-2"
+          >
+            <input
+              value={bulkTagInput}
+              onChange={(e) => setBulkTagInput(e.target.value)}
+              placeholder="Tag to add (e.g. investor)"
+              className="px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-[#1E1E3F]/20 bg-white"
+            />
+            <button
+              type="submit"
+              disabled={!bulkTagInput.trim()}
+              className="px-3 py-1.5 text-sm font-medium bg-[#1E1E3F] text-white rounded-md hover:bg-[#2D2D5F] disabled:opacity-50 transition-colors"
+            >
+              Tag all
+            </button>
+          </form>
+          <button
+            onClick={() => setSelectedRows(new Set())}
+            className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      )}
       <div 
         ref={tableRef}
         className="relative overflow-x-auto outline-none focus:ring-2 focus:ring-[#1E1E3F]/20 rounded-lg"
@@ -719,6 +782,17 @@ export default function ContactTable({
           {!hideHeader && (
             <thead>
               <tr className="bg-[#F4F4FF]">
+                {onBulkTag && (
+                  <th className="px-4 py-4 w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all on this page"
+                      checked={allOnPageSelected}
+                      onChange={toggleSelectPage}
+                      className="accent-[#1E1E3F] w-4 h-4 cursor-pointer"
+                    />
+                  </th>
+                )}
                 {safeColumns.map((column) => (
                   <th
                     key={column.key}
@@ -777,6 +851,17 @@ export default function ContactTable({
                   ${selectedRows.has(contact.email) ? 'bg-[#F4F4FF]/50' : ''}
                 `}
               >
+                {onBulkTag && (
+                  <td className="px-4 py-4 w-10">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${contact.name}`}
+                      checked={selectedRows.has(contact.email)}
+                      onChange={() => toggleRowSelected(contact.email)}
+                      className="accent-[#1E1E3F] w-4 h-4 cursor-pointer"
+                    />
+                  </td>
+                )}
                 {safeColumns.map((column) => (
                   <td
                     key={column.key}

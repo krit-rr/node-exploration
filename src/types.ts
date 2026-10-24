@@ -35,6 +35,7 @@ export interface Contact {
   provider?: 'google' | 'microsoft-entra-id';
   isSpam?: boolean;
   metAt?: string;
+  introducedBy?: string;
   snoozedUntil?: string;
   enrichedBy?: 'ai';
 }

@@ -16,11 +16,12 @@ export default function QuickAddModal({ isOpen, onClose, onAdded }: Props) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [metAt, setMetAt] = useState('');
+  const [introducedBy, setIntroducedBy] = useState('');
   const [tags, setTags] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const reset = () => { setName(''); setEmail(''); setMetAt(''); setTags(''); setNotes(''); };
+  const reset = () => { setName(''); setEmail(''); setMetAt(''); setIntroducedBy(''); setTags(''); setNotes(''); };
 
   const submit = async () => {
     if (saving) return;
@@ -33,6 +34,7 @@ export default function QuickAddModal({ isOpen, onClose, onAdded }: Props) {
           name,
           email,
           metAt,
+          introducedBy,
           notes,
           tags: tags.split(',').map(t => t.trim()).filter(Boolean),
         }),
@@ -67,6 +69,7 @@ export default function QuickAddModal({ isOpen, onClose, onAdded }: Props) {
             <input className={field} placeholder="Name" value={name} onChange={e => setName(e.target.value)} autoFocus required />
             <input className={field} placeholder="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} required />
             <input className={field} placeholder="Where you met (e.g. SF Climate Summit)" value={metAt} onChange={e => setMetAt(e.target.value)} />
+            <input className={field} placeholder="Introduced by (optional)" value={introducedBy} onChange={e => setIntroducedBy(e.target.value)} />
             <input className={field} placeholder="Tags, comma separated (investor, climate)" value={tags} onChange={e => setTags(e.target.value)} />
             <textarea className={field} placeholder="Note to self" rows={2} value={notes} onChange={e => setNotes(e.target.value)} />
             <div className="flex justify-end gap-2 pt-1">

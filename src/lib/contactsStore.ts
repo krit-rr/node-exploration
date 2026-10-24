@@ -28,6 +28,7 @@ type ContactRow = {
   enriched_by: string | null;
   met_at: string | null;
   snoozed_until: string | null;
+  introduced_by: string | null;
 };
 
 // Postgres error codes for "relation does not exist" / RLS-off states we
@@ -45,7 +46,7 @@ const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 // The reconnect migration adds met_at / snoozed_until. Until a database has
 // it, PostgREST rejects writes naming those columns (PGRST204 / 42703);
 // strip them and retry so core persistence keeps working pre-migration.
-const NEW_COLUMNS = ['met_at', 'snoozed_until'] as const;
+const NEW_COLUMNS = ['met_at', 'snoozed_until', 'introduced_by'] as const;
 
 function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
@@ -82,6 +83,7 @@ export function rowToContact(row: ContactRow): Contact {
     enrichedBy: row.enriched_by === 'ai' ? 'ai' : undefined,
     metAt: row.met_at ?? undefined,
     snoozedUntil: row.snoozed_until ?? undefined,
+    introducedBy: row.introduced_by ?? undefined,
     ...(row.is_spam ? { isSpam: true } : {}),
   } as Contact;
 }
@@ -180,6 +182,7 @@ export async function upsertImportedContacts(
     tags: contact.tags ?? [],
     notes: contact.notes ?? '',
     met_at: contact.metAt ?? null,
+    introduced_by: contact.introducedBy ?? null,
     source: (contact as Contact & { source?: string }).source ?? 'csv_import',
     enriched_by: contact.enrichedBy ?? null,
     updated_at: now,
@@ -220,6 +223,7 @@ export async function updateContact(
     tags: updated.tags ?? [],
     notes: updated.notes ?? '',
     met_at: updated.metAt ?? null,
+    introduced_by: updated.introducedBy ?? null,
     is_spam: Boolean(updated.isSpam),
     updated_at: new Date().toISOString(),
   };
@@ -350,6 +354,51 @@ export async function logTouch(
     throw new Error(`Failed to log touch: ${error.message}`);
   }
   return { available: true, contact: rowToContact(data![0] as ContactRow) };
+}
+
+/** Add one tag to many contacts (bulk tagging from the table). */
+export async function bulkAddTag(
+  owner: string,
+  emails: string[],
+  tag: string
+): Promise<{ available: boolean; updated: number }> {
+  const supabase = getSupabaseAdmin();
+  const targets = emails.map((e) => e.toLowerCase());
+
+  const { data: rows, error: readError } = await supabase
+    .from('contacts')
+    .select('email, tags')
+    .eq('owner_email', owner)
+    .in('email', targets);
+  if (readError) {
+    if (isMissingStore(readError)) return { available: false, updated: 0 };
+    throw new Error(`Failed to read contacts for tagging: ${readError.message}`);
+  }
+
+  const now = new Date().toISOString();
+  const updates = (rows as { email: string; tags: unknown }[])
+    .filter((row) => !asArray(row.tags).includes(tag))
+    .map((row) => ({
+      owner_email: owner,
+      email: row.email,
+      tags: [...asArray(row.tags), tag],
+      updated_at: now,
+    }));
+  if (updates.length === 0) return { available: true, updated: 0 };
+
+  // Per-row updates: an upsert would need every not-null column restated.
+  for (const update of updates) {
+    const { error } = await supabase
+      .from('contacts')
+      .update({ tags: update.tags, updated_at: update.updated_at })
+      .eq('owner_email', owner)
+      .eq('email', update.email);
+    if (error) {
+      if (isMissingStore(error)) return { available: false, updated: 0 };
+      throw new Error(`Failed to tag contact: ${error.message}`);
+    }
+  }
+  return { available: true, updated: updates.length };
 }
 
 /** Snooze (or clear: until=null) a contact in the reconnect queue. */

@@ -195,7 +195,25 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn }:
                 value={editedContact.metAt || ''}
                 onChange={(e) => handleInputChange('metAt', e.target.value)}
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#1E1E3F] focus:ring focus:ring-[#1E1E3F]/20 transition-all"
-                placeholder="e.g. SF Climate Summit, intro from Claire..."
+                placeholder="e.g. SF Climate Summit"
+              />
+            </motion.div>
+
+            <motion.div
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.36 }}
+              className="group"
+            >
+              <label className="block text-sm font-medium text-gray-700 mb-2 group-hover:text-[#1E1E3F] transition-colors">
+                Introduced By
+              </label>
+              <input
+                type="text"
+                value={editedContact.introducedBy || ''}
+                onChange={(e) => handleInputChange('introducedBy', e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#1E1E3F] focus:ring focus:ring-[#1E1E3F]/20 transition-all"
+                placeholder="Who connected you (e.g. Claire Hartley)"
               />
             </motion.div>
 

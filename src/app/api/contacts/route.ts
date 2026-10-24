@@ -167,6 +167,7 @@ export async function POST(request: Request) {
       sentDates: [],
       interactions: [],
       metAt: typeof body.metAt === 'string' && body.metAt.trim() ? body.metAt.trim().slice(0, 200) : undefined,
+      introducedBy: typeof body.introducedBy === 'string' && body.introducedBy.trim() ? body.introducedBy.trim().slice(0, 200) : undefined,
       notes: typeof body.notes === 'string' ? body.notes.slice(0, 2000) : '',
       tags: Array.isArray(body.tags)
         ? body.tags.filter((t: unknown) => typeof t === 'string' && t).map((t: string) => t.trim().slice(0, 50)).slice(0, 20)
