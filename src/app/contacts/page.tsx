@@ -59,7 +59,7 @@ type StoredCustomColumn = { key: CustomColumnKey; label: string };
 const getCustomColumnsStorageKey = (userEmail: string): string =>
   `custom-columns_${userEmail}`;
 
-type FilterType = 'all' | `group-${string}`;
+type FilterType = 'all' | 'intros' | `group-${string}` | `tag-${string}`;
 
 type SortConfig = {
   key: keyof Contact | CustomColumnKey | null;
@@ -229,6 +229,46 @@ function ContactsContent() {
   
   // Use the custom hook for groups and filter persistence
   const { groups, setGroups, filter, setFilter, reloadData, loadedGroups } = useGroupsPersistence(userEmail);
+
+  // Saved views: named filter combinations, server-synced like groups with
+  // a localStorage fallback until the views migration is applied.
+  type SavedView = { id: string; name: string; config: { search?: string; filter?: string; sortKey?: string; sortDirection?: 'asc' | 'desc' } };
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const viewsKey = userEmail ? `views_${userEmail}` : '';
+  useEffect(() => {
+    if (!userEmail) return;
+    const readLocal = (): SavedView[] => {
+      try {
+        const raw = localStorage.getItem(viewsKey);
+        const parsed = raw ? JSON.parse(raw) : null;
+        return Array.isArray(parsed) ? parsed : [];
+      } catch { return []; }
+    };
+    fetch('/api/views')
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (data?.persisted) {
+          setSavedViews(Array.isArray(data.views) ? data.views : []);
+          try { localStorage.setItem(viewsKey, JSON.stringify(data.views ?? [])); } catch {}
+        } else {
+          setSavedViews(readLocal());
+        }
+      })
+      .catch(() => setSavedViews(readLocal()));
+  }, [userEmail, viewsKey]);
+
+  const persistViews = useCallback((views: SavedView[]) => {
+    setSavedViews(views);
+    try { localStorage.setItem(viewsKey, JSON.stringify(views)); } catch {}
+    fetch('/api/views', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ views }),
+    }).catch(() => {});
+  }, [viewsKey]);
+
+  const [savingView, setSavingView] = useState(false);
+  const [viewNameDraft, setViewNameDraft] = useState('');
   
   // Update filter when URL changes (separate from the next useEffect to avoid race conditions)
   useEffect(() => {
@@ -479,6 +519,17 @@ function ContactsContent() {
     return emails;
   }, [displayContacts, groups]);
 
+  // Every tag in use, most common first, capped so the chip row stays sane.
+  const allTags = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of displayContacts) {
+      for (const tag of c.tags ?? []) counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12);
+  }, [displayContacts]);
+
   // Parse each contact's lastContacted once, not twice per sort comparison.
   const visibleColumns = useMemo(
     () => availableColumnsList.filter(col => activeColumns.includes(col.key)),
@@ -559,6 +610,12 @@ function ContactsContent() {
       label: 'Met At',
       description: 'Where you met this contact',
       render: (contact: Contact) => contact.metAt || '-'
+    },
+    {
+      key: 'introducedBy' as ColumnKey,
+      label: 'Introduced By',
+      description: 'Who connected you with this contact',
+      render: (contact: Contact) => contact.introducedBy || '-'
     },
     {
       key: 'lastContacted' as ColumnKey,
@@ -751,6 +808,7 @@ function ContactsContent() {
             (contact.company && contact.company.toLowerCase().includes(term)) ||
             (contact.tags && contact.tags.some(tag => tag.toLowerCase().includes(term))) ||
             (contact.metAt && contact.metAt.toLowerCase().includes(term)) ||
+            (contact.introducedBy && contact.introducedBy.toLowerCase().includes(term)) ||
             contact.customFields?.some((field: CustomField) => 
               field.value.toLowerCase().includes(term)
             )
@@ -766,6 +824,19 @@ function ContactsContent() {
       filteredResults = filteredResults.filter(contact => 
         group?.members.includes(contact.email) ?? false
       );
+    }
+
+    // Apply tag filter
+    if (activeFilter.startsWith('tag-')) {
+      const tagName = activeFilter.replace('tag-', '');
+      filteredResults = filteredResults.filter(contact =>
+        contact.tags?.includes(tagName) ?? false
+      );
+    }
+
+    // Apply intros lens: contacts someone connected you with
+    if (activeFilter === 'intros') {
+      filteredResults = filteredResults.filter(contact => Boolean(contact.introducedBy));
     }
 
     // Apply sorting
@@ -942,6 +1013,27 @@ function ContactsContent() {
         : { contacts: merged, lastUpdated: now };
     });
     toast.success('Touch logged');
+  }, [queryClient, session?.user?.email]);
+
+  const handleBulkTag = useCallback((emails: string[], tag: string) => {
+    const emailSet = new Set(emails);
+    queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
+      const existing = oldData?.contacts ?? [];
+      const merged = existing.map(c =>
+        emailSet.has(c.email) && !(c.tags ?? []).includes(tag)
+          ? { ...c, tags: [...(c.tags ?? []), tag] }
+          : c
+      );
+      return session?.user?.email
+        ? persistContacts(session.user.email, merged)
+        : { contacts: merged, lastUpdated: new Date().toISOString() };
+    });
+    fetch('/api/contacts/tags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails, tag }),
+    }).catch(() => {});
+    toast.success(`Tagged ${emails.length} contact${emails.length === 1 ? '' : 's'} with ${tag}`);
   }, [queryClient, session?.user?.email]);
 
   const handleSnoozed = useCallback((email: string, snoozedUntil: string) => {
@@ -1141,8 +1233,35 @@ function ContactsContent() {
 
   const quickFilters: QuickFilterItem[] = [
     { id: 'all', label: 'All', icon: 'Users', isGroup: false },
-    { id: 'domain', label: 'By Domain', icon: 'Globe', isGroup: false }
+    { id: 'domain', label: 'By Domain', icon: 'Globe', isGroup: false },
+    { id: 'intros', label: 'Intros', icon: 'Link', isGroup: false }
   ];
+
+  const applySavedView = (view: { config: { search?: string; filter?: string; sortKey?: string; sortDirection?: 'asc' | 'desc' } }) => {
+    setInputSearch(view.config.search ?? '');
+    setFilter((view.config.filter ?? 'all') as FilterType);
+    if (view.config.sortKey) {
+      setSortConfig({ key: view.config.sortKey as SortConfig['key'], direction: view.config.sortDirection ?? 'desc' });
+    }
+  };
+
+  const saveCurrentView = () => {
+    const name = viewNameDraft.trim();
+    if (!name) return;
+    const view = {
+      id: String(Date.now()),
+      name: name.slice(0, 60),
+      config: {
+        ...(search ? { search } : {}),
+        ...(filter !== 'all' ? { filter } : {}),
+        ...(sortConfig.key ? { sortKey: String(sortConfig.key), sortDirection: sortConfig.direction } : {}),
+      },
+    };
+    persistViews([...savedViews, view]);
+    setViewNameDraft('');
+    setSavingView(false);
+    toast.success(`View "${view.name}" saved`);
+  };
 
   // Update the filter handling logic
   const handleFilterClick = (filterId: string) => {
@@ -1401,6 +1520,60 @@ function ContactsContent() {
                     </div>
                   );
                 })}
+                {loadedGroups && allTags.length > 0 && (
+                  <div className="h-5 w-px bg-gray-200 mx-1 flex-none" aria-hidden="true" />
+                )}
+                {loadedGroups && allTags.map(([tag, count]) => (
+                  <FilterChip
+                    key={`tag-${tag}`}
+                    label={tag}
+                    icon={'Tag' as IconName}
+                    selected={filter === `tag-${tag}`}
+                    onClick={() => handleFilterClick(`tag-${tag}`)}
+                    badge={count}
+                    tooltipContent={`Show contacts tagged ${tag}`}
+                    showSelectedIcon={true}
+                  />
+                ))}
+                {savedViews.length > 0 && (
+                  <div className="h-5 w-px bg-gray-200 mx-1 flex-none" aria-hidden="true" />
+                )}
+                {savedViews.map(view => (
+                  <FilterChip
+                    key={`view-${view.id}`}
+                    label={view.name}
+                    icon={'Bookmark' as IconName}
+                    selected={false}
+                    onClick={() => applySavedView(view)}
+                    tooltipContent={`Apply saved view: ${view.name}`}
+                    onDelete={() => persistViews(savedViews.filter(v => v.id !== view.id))}
+                  />
+                ))}
+                {(search || filter !== 'all') && (
+                  savingView ? (
+                    <form
+                      onSubmit={(e) => { e.preventDefault(); saveCurrentView(); }}
+                      className="flex items-center gap-1.5 flex-none"
+                    >
+                      <input
+                        value={viewNameDraft}
+                        onChange={(e) => setViewNameDraft(e.target.value)}
+                        placeholder="View name"
+                        autoFocus
+                        className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-[#1E1E3F]/20 bg-white w-36"
+                      />
+                      <button type="submit" disabled={!viewNameDraft.trim()} className="text-sm font-medium text-[#1E1E3F] px-2 py-1 disabled:opacity-40">Save</button>
+                      <button type="button" onClick={() => { setSavingView(false); setViewNameDraft(''); }} aria-label="Cancel saving view" className="text-sm text-gray-400 px-1">×</button>
+                    </form>
+                  ) : (
+                    <button
+                      onClick={() => setSavingView(true)}
+                      className="flex-none flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 border border-dashed border-gray-300 rounded-full hover:border-[#1E1E3F]/40 hover:text-[#1E1E3F] transition-colors"
+                    >
+                      + Save view
+                    </button>
+                  )
+                )}
               </div>
             </div>
           </div>
@@ -1546,6 +1719,7 @@ function ContactsContent() {
                       contacts={domainContacts}
                       onContactClick={setSelectedContact}
                       onContactUpdate={handleContactUpdate}
+                onBulkTag={handleBulkTag}
                       currentPage={1}
                       itemsPerPage={domainContacts.length}
                       columns={visibleColumns}
@@ -1567,6 +1741,7 @@ function ContactsContent() {
                 contacts={filteredContacts}
                 onContactClick={setSelectedContact}
                 onContactUpdate={handleContactUpdate}
+                onBulkTag={handleBulkTag}
                 currentPage={currentPage}
                 itemsPerPage={itemsPerPage}
                 columns={visibleColumns}
