@@ -117,7 +117,7 @@ function useGroupsPersistence(userEmail: string | null | undefined) {
   const [loadedGroups, setLoadedGroups] = useState(false);
   
   // Load groups: server first (so they follow the account across devices),
-  // localStorage as the offline/unprovisioned fallback. ALWAYS sets state —
+  // localStorage as the offline/unprovisioned fallback. ALWAYS sets state , 
   // on an account switch that reset is what stops the previous user's
   // groups being re-persisted under the new user's key.
   const loadData = useCallback(async () => {
@@ -467,6 +467,18 @@ function ContactsContent() {
     [contacts]
   );
 
+  // Priority contacts: anyone tagged, plus every member of any group.
+  const priorityEmails = useMemo(() => {
+    const emails = new Set<string>();
+    for (const c of displayContacts) {
+      if (c.tags && c.tags.length > 0) emails.add(c.email.toLowerCase());
+    }
+    for (const group of groups) {
+      for (const member of group.members) emails.add(member.toLowerCase());
+    }
+    return emails;
+  }, [displayContacts, groups]);
+
   // Parse each contact's lastContacted once, not twice per sort comparison.
   const visibleColumns = useMemo(
     () => availableColumnsList.filter(col => activeColumns.includes(col.key)),
@@ -629,7 +641,7 @@ function ContactsContent() {
     setLoadedCustomColumns(true);
   }, [session?.user?.email]);
 
-  // Save custom column definitions whenever they change — only after the
+  // Save custom column definitions whenever they change: only after the
   // initial load, so the empty first render can't wipe the stored list.
   useEffect(() => {
     if (!session?.user?.email || !loadedCustomColumns) return;
@@ -912,6 +924,24 @@ function ContactsContent() {
         ? persistContacts(session.user.email, merged)
         : { contacts: merged, lastUpdated: new Date().toISOString() };
     });
+  }, [queryClient, session?.user?.email]);
+
+  const handleTouchLogged = useCallback((email: string, channel: 'email' | 'call' | 'meeting' | 'other') => {
+    const now = new Date().toISOString();
+    queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
+      const existing = oldData?.contacts ?? [];
+      const merged = existing.map(c => c.email === email
+        ? {
+            ...c,
+            lastContacted: now,
+            interactions: [{ date: now, channel, type: 'sent' as const }, ...(c.interactions ?? [])],
+          }
+        : c);
+      return session?.user?.email
+        ? persistContacts(session.user.email, merged)
+        : { contacts: merged, lastUpdated: now };
+    });
+    toast.success('Touch logged');
   }, [queryClient, session?.user?.email]);
 
   const handleSnoozed = useCallback((email: string, snoozedUntil: string) => {
@@ -1455,7 +1485,12 @@ function ContactsContent() {
           )}
 
           {/* Needs attention: the reconnect queue */}
-          <ReconnectRail contacts={displayContacts} onSnoozed={handleSnoozed} />
+          <ReconnectRail
+            contacts={displayContacts}
+            onSnoozed={handleSnoozed}
+            onTouchLogged={handleTouchLogged}
+            priorityEmails={priorityEmails}
+          />
 
           {/* Enhanced Table Section */}
           <div className="bg-white rounded-3xl shadow-sm">

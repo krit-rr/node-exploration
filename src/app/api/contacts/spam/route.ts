@@ -5,7 +5,7 @@ import { setSpamFlags } from '@/lib/contactsStore';
 
 const MAX_EMAILS = 500;
 
-/** POST /api/contacts/spam — persist spam flags for a batch of contacts. */
+/** POST /api/contacts/spam: persist spam flags for a batch of contacts. */
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {

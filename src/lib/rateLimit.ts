@@ -2,7 +2,7 @@
  * Minimal fixed-window rate limiter, in-memory per server instance.
  *
  * On serverless hosting each warm instance keeps its own counters, so the
- * effective global limit is (limit x instances) — still enough to stop one
+ * effective global limit is (limit x instances): still enough to stop one
  * user hammering the paid OpenAI paths from a single session. Swap for a
  * shared store (e.g. Upstash) when real multi-instance limits are needed.
  */

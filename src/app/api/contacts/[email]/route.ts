@@ -7,7 +7,7 @@ import { updateContact } from '@/lib/contactsStore';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * PUT /api/contacts/[email] — update one contact, addressed by its ORIGINAL
+ * PUT /api/contacts/[email]: update one contact, addressed by its ORIGINAL
  * email, so editing the email field updates the row instead of forking a
  * duplicate. Falls back to the old echo behavior while the store is
  * unprovisioned (client-side localStorage remains the cache either way).

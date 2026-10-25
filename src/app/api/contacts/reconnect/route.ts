@@ -6,7 +6,7 @@ import { setSnooze } from '@/lib/contactsStore';
 const MAX_SNOOZE_DAYS = 365;
 
 /**
- * POST /api/contacts/reconnect — snooze a contact out of the reconnect
+ * POST /api/contacts/reconnect: snooze a contact out of the reconnect
  * queue for N days (or clear the snooze with days: 0).
  */
 export async function POST(request: Request) {

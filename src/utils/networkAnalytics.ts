@@ -8,6 +8,7 @@ export interface NetworkScoreResult {
     activeRelationships: number;
     active90: number;
     networkReach: number;
+    priorityCount: number;
     weekTrend: 'up' | 'down' | 'stable';
   };
 }
@@ -16,19 +17,31 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Computed network health, from real data only. Sources: lastContacted per
- * contact, and the (bounded) per-contact sent-interaction history. The old
- * version hardcoded score 85, +12% week-over-week, and a 24h response time.
+ * contact and the bounded per-contact sent-interaction history.
+ *
+ * When the user has marked out a priority network (tagged contacts and
+ * group members), the score measures THAT subset: the people they chose to
+ * care about, which is the number that should move when they clear the
+ * reconnect queue. With no priority set it falls back to the whole network.
  */
-export function calculateNetworkScore(contacts: Contact[]): NetworkScoreResult {
+export function calculateNetworkScore(
+  contacts: Contact[],
+  priorityEmails?: Set<string>
+): NetworkScoreResult {
   const now = Date.now();
-  const total = contacts.length;
+  const isPriority = (c: Contact) =>
+    Boolean((c.tags && c.tags.length > 0) || priorityEmails?.has(c.email.toLowerCase()));
+  const priorityContacts = contacts.filter(isPriority);
+  const usePriority = priorityContacts.length >= 3;
+  const scored = usePriority ? priorityContacts : contacts;
+  const total = scored.length;
 
   let active30 = 0;
   let active90 = 0;
   let sentThisWeek = 0;
   let sentLastWeek = 0;
 
-  for (const contact of contacts) {
+  for (const contact of scored) {
     const last = contact.lastContacted ? new Date(contact.lastContacted).getTime() : NaN;
     if (!isNaN(last)) {
       const daysAgo = (now - last) / DAY_MS;
@@ -59,7 +72,7 @@ export function calculateNetworkScore(contacts: Contact[]): NetworkScoreResult {
     : Math.round(100 * (
         0.45 * (active30 / total) +
         0.35 * (active90 / total) +
-        0.20 * Math.min(1, total / 150)
+        0.20 * Math.min(1, total / (usePriority ? 50 : 150))
       ));
 
   const weekTrend: NetworkScoreResult['trend'] =
@@ -72,7 +85,8 @@ export function calculateNetworkScore(contacts: Contact[]): NetworkScoreResult {
       weekOverWeek,
       activeRelationships: active30,
       active90,
-      networkReach: total,
+      networkReach: contacts.length,
+      priorityCount: usePriority ? priorityContacts.length : 0,
       weekTrend,
     },
   };

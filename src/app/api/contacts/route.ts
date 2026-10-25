@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
 }
 
 
-/** POST /api/contacts — quick-add one contact (the hallway capture path). */
+/** POST /api/contacts: quick-add one contact (the hallway capture path). */
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {

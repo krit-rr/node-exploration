@@ -2,9 +2,9 @@
  * Shared contact-aggregation core for the provider mail clients.
  *
  * GmailClient and GraphClient each fetch the user's sent messages from their
- * provider and normalize them into SentMessage; everything after that —
+ * provider and normalize them into SentMessage; everything after that , 
  * dedupe by recipient, keep the latest date, accumulate bounded interaction
- * history, sort by recency — lives here exactly once.
+ * history, sort by recency: lives here exactly once.
  */
 
 export interface EmailContact {
