@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import WaitlistPill from '@/components/WaitlistPill';
 import Starfield from '@/components/Starfield';
@@ -117,7 +118,7 @@ export default function Home() {
                     animate={{ opacity: 1 }}
                     transition={{ duration: 0.7, delay: 1 }}
                   >
-                    <span>or watch a 20-second demo</span>
+                    <span>or see how it works</span>
                     <motion.span
                       animate={{ x: [0, 4, 0] }}
                       transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 1 }}
@@ -144,7 +145,7 @@ export default function Home() {
                     animate={{ opacity: 1 }}
                     transition={{ duration: 0.7, delay: 1 }}
                   >
-                    <span>or watch a 20-second demo</span>
+                    <span>or see how it works</span>
                     <motion.span
                       animate={{ x: [0, 4, 0] }}
                       transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 1 }}
@@ -162,8 +163,8 @@ export default function Home() {
       {/* GUIDED STEP WALKTHROUGH SECTION */}
       <section id="demo" className="py-32 scroll-mt-24">
         <div className="max-w-5xl mx-auto px-4 flex flex-col items-center">
-          <h2 className="text-3xl font-bold text-white mb-4 tracking-tight text-center">Watch How It Works</h2>
-          <p className="text-gray-300 text-lg font-light mb-12 text-center max-w-2xl">See how Node transforms your messy contacts into a powerful network in seconds.</p>
+          <h2 className="text-3xl font-bold text-white mb-4 tracking-tight text-center">How It Works</h2>
+          <p className="text-gray-300 text-lg font-light mb-12 text-center max-w-2xl">Four habits that keep a growing network organized, from capture to follow-through.</p>
           <GuidedDemoWalkthrough />
         </div>
       </section>
@@ -262,35 +263,36 @@ export default function Home() {
 
 const demoSteps = [
   {
-    label: 'Import',
-    loomEmbed: 'https://www.loom.com/embed/2ec8d07482e74cfd8064bc406e0d3325',
-    title: 'Import in Seconds',
-    value: 'Connect Gmail or upload CSV. Your contacts appear instantly.',
-    cta: 'Import Now',
+    label: 'Capture',
+    image: '/undraw_contacts.svg',
+    panel: 'bg-[#F4F4FF]',
+    title: 'Capture Everyone',
+    value: 'Sync your inbox, drop in a CSV from Luma, Eventbrite, or LinkedIn, or add someone in ten seconds from the hallway. Every contact lands stamped with where you met.',
+    cta: 'Next: Remember',
   },
   {
-    label: 'Clean',
-    video: '/videos/demo-clean.mp4',
-    poster: '/videos/demo-clean-poster.png',
-    title: 'Clean Instantly',
-    value: 'Node merges duplicates, fixes names, and removes spam, so your network is always up to date.',
-    cta: 'Clean Now',
+    label: 'Remember',
+    image: '/undraw_analyze.svg',
+    panel: 'bg-[#3A4169]',
+    title: 'Remember Everything',
+    value: 'Company and industry fill in automatically, your email history stays attached to each person, and the context sticks: where you met, who introduced you, what you noted.',
+    cta: 'Next: Organize',
   },
   {
-    label: 'Enrich',
-    video: '/videos/demo-enrich.mp4',
-    poster: '/videos/demo-enrich-poster.png',
-    title: 'Enrich Effortlessly',
-    value: 'See company, title, and more added automatically, so you always have the full picture.',
-    cta: 'Enrich Now',
+    label: 'Organize',
+    image: '/undraw_organize.svg',
+    panel: 'bg-[#F4F4FF]',
+    title: 'Organize in Bulk',
+    value: 'Tag fifty people in one move, build groups, and save any search as a one-click view. A conference becomes an organized roster the morning after.',
+    cta: 'Next: Keep up',
   },
   {
-    label: 'Stay in touch',
-    video: '/videos/demo-export.mp4',
-    poster: '/videos/demo-export-poster.png',
+    label: 'Keep up',
+    image: '/undraw_engage.svg',
+    panel: 'bg-[#F4F4FF]',
     title: 'Never Go Cold',
-    value: 'Node watches your network for you. When a relationship starts going quiet, it surfaces who to reach out to before the thread goes cold.',
-    cta: 'See Who Needs You',
+    value: 'The reconnect queue surfaces relationships going quiet, your priority people first. Log the coffee, the call, or the email, or snooze it; the queue clears when you act.',
+    cta: 'Back to the start',
   }
 ];
 
@@ -377,25 +379,6 @@ function GuidedDemoWalkthrough() {
     
     setStep(clickedStep);
   };
-
-  // Contextual CTA copy
-  const ctaCopy = [
-    'Try the Import Demo',
-    'See Contacts Cleaned',
-    'Watch Enrichment Live',
-    'Download a Sample Export',
-  ];
-
-  // Tasteful animated SVG/MP4 placeholder
-  const placeholderAnimation = (
-    <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" className="mx-auto">
-      <circle cx="60" cy="60" r="54" stroke="#4f5b93" strokeWidth="8" opacity="0.2" />
-      <circle cx="60" cy="60" r="54" stroke="rgba(255,255,255,0.35)" strokeWidth="8" strokeDasharray="339.292" strokeDashoffset="80" />
-      <circle cx="60" cy="60" r="40" fill="#232946" />
-      <rect x="40" y="55" width="40" height="10" rx="5" fill="rgba(255,255,255,0.55)" />
-      <rect x="50" y="70" width="20" height="6" rx="3" fill="rgba(255,255,255,0.3)" />
-    </svg>
-  );
 
   // Stepper pill styles
   const pillBase =
@@ -484,17 +467,15 @@ function GuidedDemoWalkthrough() {
                 className="rounded-3xl overflow-hidden shadow-2xl border border-[#4f5b93] bg-[#232946] flex items-center justify-center mb-6 transition-all duration-400"
                 style={{ minHeight: 300, minWidth: 420, height: 320 }}
               >
-                {step === 0 ? (
-                  <iframe
-                    src={demoSteps[0].loomEmbed}
-                    frameBorder="0"
-                    allowFullScreen
-                    className="w-full h-full rounded-3xl bg-[#232946]"
-                    title="Loom Demo Step 1"
-                  ></iframe>
-                ) : (
-                  placeholderAnimation
-                )}
+                <div className={`${demoSteps[step].panel} rounded-2xl px-10 py-8`}>
+                  <Image
+                    src={demoSteps[step].image}
+                    alt={demoSteps[step].title}
+                    width={250}
+                    height={190}
+                    className="mx-auto"
+                  />
+                </div>
               </motion.div>
             </AnimatePresence>
             <AnimatePresence mode="wait" initial={false}>
@@ -536,7 +517,7 @@ function GuidedDemoWalkthrough() {
                 onClick={next}
                 className="px-6 py-3 bg-white text-[#08090F] rounded-full font-medium text-base hover:bg-gray-200 transition-colors"
               >
-                {step === demoSteps.length - 1 ? 'Back to Step 1' : ctaCopy[step]}
+                {demoSteps[step].cta}
               </button>
             </div>
           </div>

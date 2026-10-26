@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog } from '@headlessui/react';
 import { Contact } from '@/types';
 import toast from 'react-hot-toast';
@@ -9,13 +9,21 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onAdded: (contact: Contact) => void;
+  /** Event mode: prefill met-at so hallway capture skips the retyping. */
+  defaultMetAt?: string;
 }
 
 /** Hallway capture: a contact in ten seconds, context included. */
-export default function QuickAddModal({ isOpen, onClose, onAdded }: Props) {
+export default function QuickAddModal({ isOpen, onClose, onAdded, defaultMetAt }: Props) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [metAt, setMetAt] = useState('');
+
+  useEffect(() => {
+    if (isOpen && defaultMetAt) {
+      setMetAt(prev => prev || defaultMetAt);
+    }
+  }, [isOpen, defaultMetAt]);
   const [introducedBy, setIntroducedBy] = useState('');
   const [tags, setTags] = useState('');
   const [notes, setNotes] = useState('');

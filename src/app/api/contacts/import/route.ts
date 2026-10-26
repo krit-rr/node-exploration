@@ -66,6 +66,7 @@ export async function POST(
       industry: contact.industry || undefined,
       lastContacted: contact.lastContacted || contact.lastEmailed || new Date().toISOString(),
       lastContactedRaw: contact.lastContacted || contact.lastEmailed || new Date().toISOString(),
+      metAt: typeof contact.metAt === 'string' && contact.metAt.trim() ? contact.metAt.trim().slice(0, 200) : undefined,
       importedAt: new Date().toISOString(),
       source: 'csv_import',
       customFields: contact.customFields || [],
