@@ -1,4 +1,4 @@
--- Server-side contact persistence for ntwrk.
+-- Server-side contact persistence for Node.
 -- Apply in the Supabase SQL editor (paste and run) or with `supabase db push`.
 -- Until this migration is applied, the app runs in the old stateless mode
 -- (API routes detect the missing table and fall back gracefully).

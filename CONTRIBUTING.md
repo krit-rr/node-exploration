@@ -1,11 +1,11 @@
-# Contributing to ntwrk
+# Contributing to Node
 
-Welcome to the ntwrk development team! This guide will help you set up your local development environment and understand our project structure.
+Welcome to Node development! This guide will help you set up your local development environment and understand our project structure.
 
 ## Project Structure
 
 ```
-ntwrk/
+node-exploration/
 ├── src/
 │   ├── app/
 │   │   ├── contacts/
@@ -48,8 +48,8 @@ Before you begin, ensure you have the following installed:
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/your-org/ntwrk.git
-cd ntwrk
+git clone https://github.com/krit-rr/node-exploration.git
+cd node-exploration
 ```
 
 2. Install dependencies:

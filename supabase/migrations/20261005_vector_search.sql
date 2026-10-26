@@ -1,4 +1,4 @@
--- Vector search for ntwrk: contact and interaction embeddings.
+-- Vector search for Node: contact and interaction embeddings.
 -- Apply in the Supabase SQL editor (paste and run) or with `supabase db push`.
 -- Requires the pgvector extension, available on all Supabase plans.
 

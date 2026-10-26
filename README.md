@@ -42,8 +42,8 @@ fresh data; only changed contacts are re-embedded.
 
 1. Clone the repository
 ```bash
-git clone https://github.com/yourusername/ntwrk.git
-cd ntwrk
+git clone https://github.com/krit-rr/node-exploration.git
+cd node-exploration
 ```
 
 2. Install dependencies

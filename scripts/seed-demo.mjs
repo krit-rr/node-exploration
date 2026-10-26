@@ -1,4 +1,4 @@
-// Seed the Supabase contacts store with demo data for demo@ntwrk.test.
+// Seed the Supabase contacts store with demo data for demo@node.test.
 // Usage: NODE_USE_ENV_PROXY=1 node scripts/seed-demo.mjs
 // Idempotent: upserts on (owner_email, email). All people and companies are fictional.
 import { readFileSync } from 'fs';
@@ -10,7 +10,7 @@ const supabase = createClient(get('NEXT_PUBLIC_SUPABASE_URL'), get('SUPABASE_SER
   auth: { persistSession: false },
 });
 
-const OWNER = 'demo@ntwrk.test';
+const OWNER = 'demo@node.test';
 const DAY = 24 * 60 * 60 * 1000;
 const now = Date.now();
 const iso = (daysAgo) => new Date(now - daysAgo * DAY).toISOString();
