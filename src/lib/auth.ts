@@ -88,7 +88,7 @@ const demoProvider =
           name: 'Demo user',
           credentials: {},
           async authorize() {
-            return { id: 'demo', name: 'Demo User', email: 'demo@ntwrk.test' };
+            return { id: 'demo', name: 'Demo User', email: 'demo@node.test' };
           },
         }),
       ]
