@@ -36,6 +36,8 @@ export interface Contact {
   isSpam?: boolean;
   metAt?: string;
   introducedBy?: string;
+  /** Other addresses this person was merged under (duplicate merge). */
+  altEmails?: string[];
   snoozedUntil?: string;
   enrichedBy?: 'ai';
 }

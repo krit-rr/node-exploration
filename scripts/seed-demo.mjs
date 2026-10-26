@@ -116,6 +116,13 @@ for (const c of COMPANIES) {
 }
 for (const p of PERSONAL) addContact({ ...p, maxRecencyDays: 120, touches: 1 + Math.floor(rand() * 4) });
 for (const n of NOISE) addContact({ ...n, maxRecencyDays: 10, touches: 1 });
+// Duplicate pair: Ava Chen also writes from a personal address, so the
+// duplicate-merge review has something to find out of the box.
+addContact({
+  email: 'avachen.sf@gmail.com', name: 'Ava Chen',
+  maxRecencyDays: 150, touches: 2,
+  extras: { notes: 'Personal address; uses this one outside work hours.' },
+});
 // One contact with a custom field for the custom-column demo
 rows[0].custom_fields = [{ id: 'custom_where_we_met', label: 'Where we met', value: 'SF Climate Summit' }];
 

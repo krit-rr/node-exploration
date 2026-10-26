@@ -161,6 +161,11 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn }:
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-[#1E1E3F] focus:ring focus:ring-[#1E1E3F]/20 transition-all"
                 placeholder="Enter email..."
               />
+              {(editedContact.altEmails?.length ?? 0) > 0 && (
+                <p className="mt-1.5 text-xs text-gray-500">
+                  Also reaches them: {editedContact.altEmails!.join(', ')}
+                </p>
+              )}
             </motion.div>
             
             <motion.div
