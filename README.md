@@ -18,12 +18,12 @@ Automatically organize your contacts based on:
 Contacts and recent email subjects/snippets are embedded (OpenAI
 `text-embedding-3-small`) and stored in Supabase Postgres with the pgvector
 extension. This powers:
-- **Semantic contact search** — when the literal text filter on the contacts
+- **Semantic contact search**: when the literal text filter on the contacts
   page finds nothing, the search falls back to meaning-based matching
   (`GET /api/search?q=...`)
-- **Interaction memory** — search what you last discussed with someone
+- **Interaction memory**: search what you last discussed with someone
   (`GET /api/search?q=...&scope=interactions&contact=a@b.com`)
-- **Similar contacts** — nearest neighbors of any contact, with no model call
+- **Similar contacts**: nearest neighbors of any contact, with no model call
   (`GET /api/contacts/similar?email=a@b.com`)
 
 Setup: run `supabase/migrations/20261005_vector_search.sql` and `supabase/migrations/20261006_contacts.sql` in your Supabase

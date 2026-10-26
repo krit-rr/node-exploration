@@ -171,7 +171,7 @@ export async function upsertImportedContacts(
 ): Promise<{ available: boolean }> {
   if (incoming.length === 0) return { available: true };
   const now = new Date().toISOString();
-  const rows = incoming.map((contact) => ({
+  let rows = incoming.map((contact) => ({
     owner_email: owner,
     email: contact.email.toLowerCase(),
     name: contact.name || contact.email,
@@ -187,6 +187,57 @@ export async function upsertImportedContacts(
     enriched_by: contact.enrichedBy ?? null,
     updated_at: now,
   }));
+
+  // Re-importing someone (common once event lists are imported twice) must
+  // not wipe the context already on their row: a bare CSV row carries no
+  // tags, notes, met-at or intro, and a blind upsert would blank them all.
+  // Incoming values still win when present (an event stamp is deliberate).
+  type PrevRow = {
+    email: string;
+    company: string | null;
+    industry: string | null;
+    last_contacted: string | null;
+    tags: string[] | null;
+    notes: string | null;
+    met_at?: string | null;
+    introduced_by?: string | null;
+  };
+  const { data, error: existingError } = await getSupabaseAdmin()
+    .from('contacts')
+    .select('email, company, industry, last_contacted, tags, notes, met_at, introduced_by')
+    .eq('owner_email', owner)
+    .in('email', rows.map((r) => r.email));
+  let existingRows = (data as PrevRow[] | null) ?? null;
+  if (!existingRows && isMissingColumn(existingError)) {
+    const retry = await getSupabaseAdmin()
+      .from('contacts')
+      .select('email, company, industry, last_contacted, tags, notes')
+      .eq('owner_email', owner)
+      .in('email', rows.map((r) => r.email));
+    existingRows = (retry.data as PrevRow[] | null) ?? null;
+  }
+  if (existingRows) {
+    const latestIso = (a: string | null, b: string | null) => {
+      if (!a) return b;
+      if (!b) return a;
+      return new Date(a) > new Date(b) ? a : b;
+    };
+    const byEmail = new Map(existingRows.map((r) => [r.email, r]));
+    rows = rows.map((row) => {
+      const prev = byEmail.get(row.email);
+      if (!prev) return row;
+      return {
+        ...row,
+        company: row.company || prev.company || null,
+        industry: row.industry || prev.industry || null,
+        last_contacted: latestIso(row.last_contacted, prev.last_contacted),
+        tags: row.tags.length > 0 ? row.tags : prev.tags ?? [],
+        notes: row.notes || prev.notes || '',
+        met_at: row.met_at ?? prev.met_at ?? null,
+        introduced_by: row.introduced_by ?? prev.introduced_by ?? null,
+      };
+    });
+  }
 
   let { error } = await getSupabaseAdmin()
     .from('contacts')

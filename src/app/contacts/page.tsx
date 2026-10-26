@@ -23,6 +23,8 @@ import DomainStats from '@/components/DomainStats';
 import { useContacts, syncContacts, getContactsStorageKey, persistContacts, type ContactsData } from '@/hooks/useContacts';
 import ReconnectRail from '@/components/ReconnectRail';
 import QuickAddModal from '@/components/QuickAddModal';
+import TriageModal from '@/components/TriageModal';
+import { getCurrentEvent, setCurrentEvent, clearCurrentEvent, type CurrentEvent } from '@/utils/currentEvent';
 import { customKeyForLabel, customFieldKey } from '@/utils/customFields';
 import { useSemanticSearch } from '@/hooks/useSemanticSearch';
 import { Suspense } from 'react';
@@ -59,7 +61,7 @@ type StoredCustomColumn = { key: CustomColumnKey; label: string };
 const getCustomColumnsStorageKey = (userEmail: string): string =>
   `custom-columns_${userEmail}`;
 
-type FilterType = 'all' | 'intros' | `group-${string}` | `tag-${string}`;
+type FilterType = 'all' | 'intros' | `group-${string}` | `tag-${string}` | `event-${string}`;
 
 type SortConfig = {
   key: keyof Contact | CustomColumnKey | null;
@@ -226,6 +228,30 @@ function ContactsContent() {
   
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  // Event mode: device-local current event for capture defaults and triage.
+  const [currentEvent, setCurrentEventState] = useState<CurrentEvent | null>(null);
+  const [settingEvent, setSettingEvent] = useState(false);
+  const [eventDraft, setEventDraft] = useState('');
+  const [showTriage, setShowTriage] = useState(false);
+
+  // Read after mount: localStorage is not available during SSR.
+  useEffect(() => {
+    setCurrentEventState(getCurrentEvent());
+  }, []);
+
+  const startEventMode = () => {
+    const event = setCurrentEvent(eventDraft);
+    if (!event) return;
+    setCurrentEventState(event);
+    setSettingEvent(false);
+    setEventDraft('');
+    toast.success(`Event mode on: ${event.name}`);
+  };
+
+  const endEventMode = () => {
+    clearCurrentEvent();
+    setCurrentEventState(null);
+  };
   
   // Use the custom hook for groups and filter persistence
   const { groups, setGroups, filter, setFilter, reloadData, loadedGroups } = useGroupsPersistence(userEmail);
@@ -529,6 +555,27 @@ function ContactsContent() {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 12);
   }, [displayContacts]);
+
+  // Events worth a chip: met-at values shared by 2+ contacts. One-off met-at
+  // entries ("coffee with Sam") stay reachable through search instead.
+  const allEvents = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of displayContacts) {
+      const met = c.metAt?.trim();
+      if (met) counts.set(met, (counts.get(met) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .filter(([, count]) => count >= 2)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6);
+  }, [displayContacts]);
+
+  // The roster behind the active event filter, for post-event triage.
+  const triageContacts = useMemo(() => {
+    if (!filter.startsWith('event-')) return [];
+    const eventName = filter.replace('event-', '');
+    return displayContacts.filter(c => (c.metAt?.trim() ?? '') === eventName);
+  }, [filter, displayContacts]);
 
   // Parse each contact's lastContacted once, not twice per sort comparison.
   const visibleColumns = useMemo(
@@ -839,6 +886,12 @@ function ContactsContent() {
       filteredResults = filteredResults.filter(contact => Boolean(contact.introducedBy));
     }
 
+    // Apply event lens: everyone met at the same place
+    if (activeFilter.startsWith('event-')) {
+      const eventName = activeFilter.replace('event-', '');
+      filteredResults = filteredResults.filter(contact => (contact.metAt?.trim() ?? '') === eventName);
+    }
+
     // Apply sorting
     if (sortConfig.key) {
       filteredResults.sort((a, b) => {
@@ -1046,20 +1099,29 @@ function ContactsContent() {
     });
   }, [queryClient, session?.user?.email]);
 
-  const handleImportComplete = useCallback((newContacts: Contact[]) => {
+  const handleImportComplete = useCallback((newContacts: Contact[], eventName?: string) => {
     queryClient.setQueryData(['sentRecipients', session?.user?.email], (oldData: any) => {
       // Get existing contacts from the query data
       const existingContacts = oldData?.contacts || [];
-      
+
+      // Event-stamped re-imports refresh met-at on contacts we already have
+      // (the server upsert did the same), without clobbering their richer
+      // local data the way a full replace would.
+      const incomingByEmail = new Map(newContacts.map(c => [c.email.toLowerCase(), c]));
+      const refreshedExisting = existingContacts.map((c: Contact) => {
+        const incoming = incomingByEmail.get(c.email.toLowerCase());
+        return incoming?.metAt ? { ...c, metAt: incoming.metAt } : c;
+      });
+
       // Create a Set of existing email addresses (case-insensitive)
       const existingEmails = new Set(existingContacts.map((c: Contact) => c.email.toLowerCase()));
-      
+
       // Only add new contacts that don't exist in the current list
       const uniqueNewContacts = newContacts.filter(
         contact => !existingEmails.has(contact.email.toLowerCase())
       );
-      
-      const updatedContacts = [...existingContacts, ...uniqueNewContacts];
+
+      const updatedContacts = [...refreshedExisting, ...uniqueNewContacts];
       
       // Update localStorage with the new data
       const storageKey = getContactsStorageKey(session?.user?.email);
@@ -1092,7 +1154,23 @@ function ContactsContent() {
         lastUpdated: new Date().toISOString()
       };
     });
-  }, [queryClient, session?.user?.email]);
+
+    // Event import: land on the event's roster with triage one tap away.
+    if (eventName && newContacts.length > 0) {
+      setFilter(`event-${eventName}` as FilterType);
+      toast((t) => (
+        <span className="flex items-center gap-3 text-sm">
+          <span>Stamped with {eventName}.</span>
+          <button
+            onClick={() => { setShowTriage(true); toast.dismiss(t.id); }}
+            className="font-medium text-[#1E1E3F] underline underline-offset-2"
+          >
+            Triage now
+          </button>
+        </span>
+      ), { duration: 8000, style: { background: '#F4F4FF', color: '#1E1E3F' } });
+    }
+  }, [queryClient, session?.user?.email, setFilter]);
 
   const handleContactUpdate = async (updatedContact: Contact, originalEmail?: string): Promise<void> => {
     // mutateAsync (not mutate) so failures reject and callers can react;
@@ -1535,6 +1613,29 @@ function ContactsContent() {
                     showSelectedIcon={true}
                   />
                 ))}
+                {loadedGroups && allEvents.length > 0 && (
+                  <div className="h-5 w-px bg-gray-200 mx-1 flex-none" aria-hidden="true" />
+                )}
+                {loadedGroups && allEvents.map(([eventName, count]) => (
+                  <FilterChip
+                    key={`event-${eventName}`}
+                    label={eventName}
+                    icon={'Calendar' as IconName}
+                    selected={filter === `event-${eventName}`}
+                    onClick={() => handleFilterClick(`event-${eventName}`)}
+                    badge={count}
+                    tooltipContent={`Everyone you met at ${eventName}`}
+                    showSelectedIcon={true}
+                  />
+                ))}
+                {filter.startsWith('event-') && triageContacts.length > 0 && (
+                  <button
+                    onClick={() => setShowTriage(true)}
+                    className="flex-none flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-[#1E1E3F] rounded-full hover:bg-[#2D2D5F] transition-colors"
+                  >
+                    Triage these
+                  </button>
+                )}
                 {savedViews.length > 0 && (
                   <div className="h-5 w-px bg-gray-200 mx-1 flex-none" aria-hidden="true" />
                 )}
@@ -1573,6 +1674,43 @@ function ContactsContent() {
                       + Save view
                     </button>
                   )
+                )}
+                <div className="h-5 w-px bg-gray-200 mx-1 flex-none" aria-hidden="true" />
+                {currentEvent ? (
+                  <span className="flex-none flex items-center gap-2 px-3 py-1.5 text-sm rounded-full bg-[#1E1E3F] text-white">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" />
+                    At {currentEvent.name}
+                    <button
+                      onClick={endEventMode}
+                      aria-label="End event mode"
+                      className="text-white/70 hover:text-white transition-colors"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ) : settingEvent ? (
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); startEventMode(); }}
+                    className="flex items-center gap-1.5 flex-none"
+                  >
+                    <input
+                      value={eventDraft}
+                      onChange={(e) => setEventDraft(e.target.value)}
+                      placeholder="Event name"
+                      autoFocus
+                      className="px-2.5 py-1.5 text-sm border border-gray-200 rounded-full focus:outline-none focus:ring-2 focus:ring-[#1E1E3F]/20 bg-white w-40"
+                    />
+                    <button type="submit" disabled={!eventDraft.trim()} className="text-sm font-medium text-[#1E1E3F] px-2 py-1 disabled:opacity-40">Start</button>
+                    <button type="button" onClick={() => { setSettingEvent(false); setEventDraft(''); }} aria-label="Cancel event mode" className="text-sm text-gray-400 px-1">×</button>
+                  </form>
+                ) : (
+                  <button
+                    onClick={() => setSettingEvent(true)}
+                    className="flex-none flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 border border-dashed border-gray-300 rounded-full hover:border-[#1E1E3F]/40 hover:text-[#1E1E3F] transition-colors"
+                    title="Prefill where-you-met on everything you add while you are there"
+                  >
+                    At an event?
+                  </button>
                 )}
               </div>
             </div>
@@ -1791,6 +1929,15 @@ function ContactsContent() {
           isOpen={showQuickAdd}
           onClose={() => setShowQuickAdd(false)}
           onAdded={mergeContactLocal}
+          defaultMetAt={currentEvent?.name}
+        />
+
+        <TriageModal
+          isOpen={showTriage}
+          onClose={() => setShowTriage(false)}
+          eventName={filter.startsWith('event-') ? filter.replace('event-', '') : ''}
+          contacts={triageContacts}
+          onSave={(contact) => { handleContactUpdate(contact, contact.email).catch(() => {}); }}
         />
 
         {showCleanupAssistant && (
@@ -1857,6 +2004,7 @@ function ContactsContent() {
           isOpen={showImportModal}
           onClose={() => setShowImportModal(false)}
           onImportComplete={handleImportComplete}
+          defaultEventName={currentEvent?.name}
         />
       </div>
       )}

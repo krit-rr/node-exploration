@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Contact } from '@/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import Papa from 'papaparse';
@@ -8,7 +8,9 @@ import { Tab } from '@headlessui/react';
 interface ImportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onImportComplete: (newContacts: Contact[]) => void;
+  onImportComplete: (newContacts: Contact[], eventName?: string) => void;
+  /** Event mode: prefill the event stamp for this import. */
+  defaultEventName?: string;
 }
 
 interface CSVContact {
@@ -176,7 +178,7 @@ function transformRowToCanonical(row: CSVContact): Record<string, string> {
   return { name, email, company, industry, lastEmailed };
 }
 
-export default function ImportModal({ isOpen, onClose, onImportComplete }: ImportModalProps) {
+export default function ImportModal({ isOpen, onClose, onImportComplete, defaultEventName }: ImportModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string>('');
   const [, setImporting] = useState(false);
@@ -186,6 +188,11 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }: Impor
   const [importStats, setImportStats] = useState({ total: 0, valid: 0, duplicate: 0 });
   const [selectedSource, setSelectedSource] = useState<DataSource>(DATA_SOURCES[0]);
   const [previewPage, setPreviewPage] = useState(1);
+  const [eventName, setEventName] = useState('');
+
+  useEffect(() => {
+    if (isOpen) setEventName(defaultEventName ?? '');
+  }, [isOpen, defaultEventName]);
 
   const resetState = () => {
     setFile(null);
@@ -195,6 +202,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }: Impor
     setDisplayedContacts([]);
     setStep('upload');
     setImportStats({ total: 0, valid: 0, duplicate: 0 });
+    setEventName(defaultEventName ?? '');
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -275,7 +283,12 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }: Impor
             return;
           }
 
-          const contacts = results.data.map(transformRowToCanonical);
+          // Event stamp: met-at on every row, so the import lands pre-organized.
+          const stampedEvent = eventName.trim().slice(0, 200);
+          const contacts = results.data.map(row => {
+            const canonical = transformRowToCanonical(row);
+            return stampedEvent ? { ...canonical, metAt: stampedEvent } : canonical;
+          });
 
           // Validate contacts before sending
           const validationErrors = contacts.map((contact, index) => {
@@ -309,7 +322,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }: Impor
             }
 
             const importedContacts = await response.json();
-            onImportComplete(importedContacts);
+            onImportComplete(importedContacts, stampedEvent || undefined);
             resetState();
             onClose();
           } catch (err) {
@@ -426,6 +439,21 @@ export default function ImportModal({ isOpen, onClose, onImportComplete }: Impor
       case 'preview':
         return (
           <div className="space-y-6">
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+              <label htmlFor="import-event" className="block text-sm font-medium text-[#1E1E3F] mb-1">
+                Event <span className="font-normal text-gray-400">(optional)</span>
+              </label>
+              <input
+                id="import-event"
+                value={eventName}
+                onChange={e => setEventName(e.target.value)}
+                placeholder="e.g. DevWeek SF 2026"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1E1E3F]/20 focus:border-[#1E1E3F] text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-1.5">
+                Stamps where-you-met on every imported contact and pins the event as a filter, ready to triage.
+              </p>
+            </div>
             <div className="bg-[#F4F4FF] p-6 rounded-lg">
               <h3 className="font-semibold text-[#1E1E3F] text-lg mb-3">Import Summary</h3>
               <div className="grid grid-cols-2 gap-4">
