@@ -77,8 +77,8 @@ export default function Auth() {
               <p className="text-gray-500 text-xs font-medium">Learn more about our privacy approach:</p>
             </div>
             <div className="space-y-2 mb-6">
-              <Link 
-                href="/demo" 
+              <Link
+                href="/#demo"
                 className="w-full text-xs text-[#1E1E3F]/80 bg-[#F4F4FF]/70 hover:bg-[#E8E8FF]/80 px-3 py-2 rounded-md flex items-center gap-2 transition-all duration-200 border border-[#1E1E3F]/10 group hover:shadow-sm"
               >
                 <div className="bg-[#1E1E3F]/10 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all duration-200 group-hover:bg-[#1E1E3F]/15">
@@ -87,8 +87,8 @@ export default function Auth() {
                   </svg>
                 </div>
                 <div className="flex flex-col items-start">
-                  <span className="font-medium">Watch a 2-min Demo</span>
-                  <span className="text-xs text-[#1E1E3F]/60">No account needed</span>
+                  <span className="font-medium">See how Node works</span>
+                  <span className="text-xs text-[#1E1E3F]/60">Guided walkthrough, no account needed</span>
                 </div>
                 <svg className="w-3.5 h-3.5 ml-auto text-[#1E1E3F]/40 group-hover:translate-x-1 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -371,17 +371,17 @@ export default function Auth() {
                     We offer these options:
                   </p>
                   <ul className="text-sm text-gray-600 space-y-1 pl-5 list-disc">
-                    <li><span className="font-medium">Watch a demo video</span> to see exactly how Node works without connecting</li>
+                    <li><span className="font-medium">Follow the guided walkthrough</span> to see exactly how Node works without connecting</li>
                     <li><span className="font-medium">Try with a personal account</span> first to evaluate privacy protection</li>
                   </ul>
                 </div>
                 <div className="flex justify-center mt-2">
-                  <Link href="/demo" className="text-sm text-[#1E1E3F] hover:text-[#2D2D5F] inline-flex items-center gap-1 transition-colors">
+                  <Link href="/#demo" className="text-sm text-[#1E1E3F] hover:text-[#2D2D5F] inline-flex items-center gap-1 transition-colors">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    Watch demo video
+                    See the walkthrough
                   </Link>
                 </div>
               </div>
