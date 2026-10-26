@@ -9,6 +9,8 @@ import Pagination from './Pagination';
 interface ContactTableProps {
   contacts: Contact[];
   onBulkTag?: (emails: string[], tag: string) => void;
+  /** Offered when exactly two rows are selected: merge them into one. */
+  onMergePair?: (emails: [string, string]) => void;
   columns: {
     key: string;
     label: string;
@@ -132,6 +134,7 @@ export default function ContactTable({
   contacts,
   columns,
   onBulkTag,
+  onMergePair,
   onContactClick,
   currentPage,
   itemsPerPage,
@@ -734,6 +737,18 @@ export default function ContactTable({
               Tag all
             </button>
           </form>
+          {onMergePair && selectedRows.size === 2 && (
+            <button
+              onClick={() => {
+                const [first, second] = Array.from(selectedRows);
+                onMergePair([first, second]);
+                setSelectedRows(new Set());
+              }}
+              className="px-3 py-1.5 text-sm font-medium bg-white border border-[#1E1E3F]/20 text-[#1E1E3F] rounded-md hover:bg-[#E8E8FF] transition-colors"
+            >
+              Merge into one
+            </button>
+          )}
           <button
             onClick={() => setSelectedRows(new Set())}
             className="text-sm text-gray-500 hover:text-gray-700 transition-colors"

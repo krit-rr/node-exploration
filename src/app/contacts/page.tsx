@@ -24,6 +24,8 @@ import { useContacts, syncContacts, getContactsStorageKey, persistContacts, type
 import ReconnectRail from '@/components/ReconnectRail';
 import QuickAddModal from '@/components/QuickAddModal';
 import TriageModal from '@/components/TriageModal';
+import MergeModal from '@/components/MergeModal';
+import { findDuplicatePairs, makePair, pairKey, type DuplicatePair } from '@/utils/duplicates';
 import { getCurrentEvent, setCurrentEvent, clearCurrentEvent, type CurrentEvent } from '@/utils/currentEvent';
 import { customKeyForLabel, customFieldKey } from '@/utils/customFields';
 import { useSemanticSearch } from '@/hooks/useSemanticSearch';
@@ -234,6 +236,28 @@ function ContactsContent() {
   const [eventDraft, setEventDraft] = useState('');
   const [showTriage, setShowTriage] = useState(false);
 
+  // Duplicate merge: review pairs the detector found, or two hand-picked rows.
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [manualPair, setManualPair] = useState<DuplicatePair | null>(null);
+  const [dismissedPairs, setDismissedPairs] = useState<Set<string>>(new Set());
+
+  // "Not the same person" decisions persist per account (device-local cache,
+  // like other UI conveniences; the merge itself lives in the store).
+  useEffect(() => {
+    if (!userEmail) return;
+    try {
+      const raw = localStorage.getItem(`mergeDismissed_${userEmail}`);
+      if (raw) {
+        const keys = JSON.parse(raw);
+        if (Array.isArray(keys)) {
+          setDismissedPairs(new Set(keys.filter((k: unknown): k is string => typeof k === 'string')));
+        }
+      }
+    } catch {
+      // Cache only; detection just re-suggests dismissed pairs.
+    }
+  }, [userEmail]);
+
   // Read after mount: localStorage is not available during SSR.
   useEffect(() => {
     setCurrentEventState(getCurrentEvent());
@@ -414,6 +438,14 @@ function ContactsContent() {
 
   // Extract contacts from the data object
   const contacts = contactsData.contacts;
+
+  const duplicatePairs = useMemo(
+    () =>
+      findDuplicatePairs(contacts).filter(
+        (pair) => !dismissedPairs.has(pairKey(pair.primary, pair.duplicate))
+      ),
+    [contacts, dismissedPairs]
+  );
 
   // Keep server-side embeddings fresh so semantic search has data to match
   // against. The sync endpoint hashes content and skips unchanged contacts,
@@ -1089,6 +1121,64 @@ function ContactsContent() {
     toast.success(`Tagged ${emails.length} contact${emails.length === 1 ? '' : 's'} with ${tag}`);
   }, [queryClient, session?.user?.email]);
 
+  const handleMergePairSelected = useCallback((emails: [string, string]) => {
+    const first = contacts.find(c => c.email === emails[0]);
+    const second = contacts.find(c => c.email === emails[1]);
+    if (!first || !second) return;
+    setManualPair(makePair(first, second));
+    setShowMergeModal(true);
+  }, [contacts]);
+
+  const handleDismissPair = useCallback((pair: DuplicatePair) => {
+    const key = pairKey(pair.primary, pair.duplicate);
+    setDismissedPairs(prev => {
+      const next = new Set(prev);
+      next.add(key);
+      if (userEmail) {
+        try {
+          localStorage.setItem(`mergeDismissed_${userEmail}`, JSON.stringify(Array.from(next)));
+        } catch {
+          // Cache only.
+        }
+      }
+      return next;
+    });
+    setManualPair(prev => (prev && pairKey(prev.primary, prev.duplicate) === key ? null : prev));
+  }, [userEmail]);
+
+  const handleMerge = useCallback(async (primary: Contact, duplicate: Contact) => {
+    let response: Response;
+    try {
+      response = await fetch('/api/contacts/merge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ primaryEmail: primary.email, duplicateEmail: duplicate.email }),
+      });
+    } catch {
+      toast.error('Failed to merge contacts');
+      return;
+    }
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      toast.error(data.error || 'Failed to merge contacts');
+      return;
+    }
+    const { persisted: _persisted, ...merged } = data as Contact & { persisted?: boolean };
+    queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
+      const existing = oldData?.contacts ?? [];
+      const next = existing
+        .filter(c => c.email !== duplicate.email)
+        .map(c => (c.email === primary.email ? (merged as Contact) : c));
+      return session?.user?.email
+        ? persistContacts(session.user.email, next)
+        : { contacts: next, lastUpdated: new Date().toISOString() };
+    });
+    setManualPair(prev =>
+      prev && pairKey(prev.primary, prev.duplicate) === pairKey(primary, duplicate) ? null : prev
+    );
+    toast.success(`Merged into ${merged.name || primary.email}`);
+  }, [queryClient, session?.user?.email]);
+
   const handleSnoozed = useCallback((email: string, snoozedUntil: string) => {
     queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
       const existing = oldData?.contacts ?? [];
@@ -1520,6 +1610,21 @@ function ContactsContent() {
                     <span className="hidden md:inline">Clear Groups</span>
                   </button>
                 )}
+                {duplicatePairs.length > 0 && (
+                  <button
+                    onClick={() => { setManualPair(null); setShowMergeModal(true); }}
+                    className="flex items-center gap-2 px-3 md:px-4 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg hover:bg-amber-100 transition-colors text-sm"
+                    title="Review contacts that look like the same person"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M9 20H4v-2a3 3 0 015.356-1.857M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span className="hidden md:inline">
+                      {duplicatePairs.length} possible duplicate{duplicatePairs.length === 1 ? '' : 's'}
+                    </span>
+                    <span className="md:hidden">{duplicatePairs.length}</span>
+                  </button>
+                )}
                 <button
                   onClick={() => setShowQuickAdd(true)}
                   className="flex items-center gap-2 px-3 md:px-4 py-2 bg-[#1E1E3F] text-white rounded-lg hover:bg-[#2D2D5F] transition-colors text-sm"
@@ -1858,6 +1963,7 @@ function ContactsContent() {
                       onContactClick={setSelectedContact}
                       onContactUpdate={handleContactUpdate}
                 onBulkTag={handleBulkTag}
+                onMergePair={handleMergePairSelected}
                       currentPage={1}
                       itemsPerPage={domainContacts.length}
                       columns={visibleColumns}
@@ -1880,6 +1986,7 @@ function ContactsContent() {
                 onContactClick={setSelectedContact}
                 onContactUpdate={handleContactUpdate}
                 onBulkTag={handleBulkTag}
+                onMergePair={handleMergePairSelected}
                 currentPage={currentPage}
                 itemsPerPage={itemsPerPage}
                 columns={visibleColumns}
@@ -1938,6 +2045,14 @@ function ContactsContent() {
           eventName={filter.startsWith('event-') ? filter.replace('event-', '') : ''}
           contacts={triageContacts}
           onSave={(contact) => { handleContactUpdate(contact, contact.email).catch(() => {}); }}
+        />
+
+        <MergeModal
+          isOpen={showMergeModal}
+          onClose={() => { setShowMergeModal(false); setManualPair(null); }}
+          pairs={manualPair ? [manualPair] : duplicatePairs}
+          onMerge={handleMerge}
+          onDismiss={handleDismissPair}
         />
 
         {showCleanupAssistant && (
