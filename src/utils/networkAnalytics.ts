@@ -1,4 +1,5 @@
 import { Contact } from '@/types';
+import { isPriorityContact } from '@/utils/reconnect';
 
 export interface NetworkScoreResult {
   score: number;
@@ -19,7 +20,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * Computed network health, from real data only. Sources: lastContacted per
  * contact and the bounded per-contact sent-interaction history.
  *
- * When the user has marked out a priority network (tagged contacts and
+ * When the user has marked out a priority network (key-contact tag or
  * group members), the score measures THAT subset: the people they chose to
  * care about, which is the number that should move when they clear the
  * reconnect queue. With no priority set it falls back to the whole network.
@@ -29,9 +30,7 @@ export function calculateNetworkScore(
   priorityEmails?: Set<string>
 ): NetworkScoreResult {
   const now = Date.now();
-  const isPriority = (c: Contact) =>
-    Boolean((c.tags && c.tags.length > 0) || priorityEmails?.has(c.email.toLowerCase()));
-  const priorityContacts = contacts.filter(isPriority);
+  const priorityContacts = contacts.filter(c => isPriorityContact(c, priorityEmails));
   const usePriority = priorityContacts.length >= 3;
   const scored = usePriority ? priorityContacts : contacts;
   const total = scored.length;

@@ -101,7 +101,7 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
             <div key={email} className="border border-gray-100 rounded-lg p-3 flex flex-col gap-1.5 min-w-0">
               <div className="min-w-0">
                 <p className="font-medium text-[#1E1E3F] truncate">
-                  {candidate.priority && <span className="mr-1 text-[#1E1E3F]/60" title="Priority contact">✦</span>}
+                  {candidate.priority && <span className="mr-1 text-[#1E1E3F]/60" title="Priority: tagged key-contact or in a group">✦</span>}
                   {candidate.contact.name}
                 </p>
                 <p className="text-xs text-gray-500 truncate">
@@ -109,7 +109,9 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
                 </p>
               </div>
               <p className="text-xs text-gray-400">
-                Last touch {since(candidate.daysSince)} ago
+                {candidate.neverTouched
+                  ? <>Added {since(candidate.daysSince)} ago, no touch yet</>
+                  : <>Last touch {since(candidate.daysSince)} ago</>}
                 {candidate.lastSubject ? <> &middot; <span className="italic">&ldquo;{candidate.lastSubject}&rdquo;</span></> : null}
               </p>
               {candidate.contact.metAt && (

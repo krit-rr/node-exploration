@@ -30,6 +30,7 @@ type ContactRow = {
   snoozed_until: string | null;
   introduced_by: string | null;
   alt_emails?: unknown;
+  created_at?: string;
 };
 
 // Postgres error codes for "relation does not exist" / RLS-off states we
@@ -113,6 +114,7 @@ export function rowToContact(row: ContactRow): Contact {
     metAt: row.met_at ?? undefined,
     snoozedUntil: row.snoozed_until ?? undefined,
     introducedBy: row.introduced_by ?? undefined,
+    createdAt: row.created_at ?? undefined,
     ...(asArray(row.alt_emails).length > 0
       ? { altEmails: asArray(row.alt_emails).map(String) }
       : {}),
