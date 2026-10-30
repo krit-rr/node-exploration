@@ -76,8 +76,8 @@ Error responses are generic; details stay in server logs.
 - `src/app/contacts/page.tsx`: the core surface. `useContacts()` (single query key, network-first), the Going-cold `ReconnectRail`, filter chips (quick filters, groups, tags, saved views), the spreadsheet `ContactTable` with selection and bulk tagging, quick-add, import, export, cleanup assistant.
 - `src/app/insights/page.tsx`: compact rail, `NetworkScore` (priority-aware, computed), `SmartInsights` groupings, activity timeline. Everything memoized; widgets wrapped in error boundaries.
 - `src/hooks/useContacts.ts`: the one contacts query plus `persistContacts` and `syncContacts`. All cache writers produce the same shape.
-- `src/utils/reconnect.ts`: the going-cold queue (45-day threshold, spam and no-reply excluded, snoozes respected, priority contacts first).
-- `src/utils/networkAnalytics.ts`: the score. With 3+ priority contacts (tagged or grouped) it measures that subset.
+- `src/utils/reconnect.ts`: the going-cold queue (45-day threshold, spam and no-reply excluded, snoozes respected, priority contacts first). Priority means tagged `key-contact` or in a group (`isPriorityContact`); other tags do not reorder the queue. A contact with no recorded touch ages from `createdAt` instead of being skipped.
+- `src/utils/networkAnalytics.ts`: the score. With 3+ priority contacts (key-contact or grouped) it measures that subset.
 - `src/lib/`: `contactsStore`, `groupsStore`, `viewsStore` (service-role repositories), `email-contacts` (shared mail aggregation core for the Gmail and Graph clients), `enrich*`, `rateLimit`, `clientSignOut`.
 
 ## Auth flow

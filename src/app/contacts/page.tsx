@@ -565,17 +565,15 @@ function ContactsContent() {
     [contacts]
   );
 
-  // Priority contacts: anyone tagged, plus every member of any group.
+  // Group membership counts as priority; the key-contact tag is handled by
+  // isPriorityContact since it lives on the row itself.
   const priorityEmails = useMemo(() => {
     const emails = new Set<string>();
-    for (const c of displayContacts) {
-      if (c.tags && c.tags.length > 0) emails.add(c.email.toLowerCase());
-    }
     for (const group of groups) {
       for (const member of group.members) emails.add(member.toLowerCase());
     }
     return emails;
-  }, [displayContacts, groups]);
+  }, [groups]);
 
   // Every tag in use, most common first, capped so the chip row stays sane.
   const allTags = useMemo(() => {

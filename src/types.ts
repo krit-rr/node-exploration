@@ -39,6 +39,8 @@ export interface Contact {
   /** Other addresses this person was merged under (duplicate merge). */
   altEmails?: string[];
   snoozedUntil?: string;
+  /** When Node first stored the row; the reconnect queue falls back to it when no touch is recorded. */
+  createdAt?: string;
   enrichedBy?: 'ai';
 }
 

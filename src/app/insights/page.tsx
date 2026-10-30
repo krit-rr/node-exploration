@@ -44,7 +44,7 @@ export default function InsightsPage() {
   const handleSnoozed = () => refetch();
   const handleTouchLogged = () => refetch();
 
-  // Group members count as priority alongside tagged contacts.
+  // Group members count as priority alongside key-contact tagged contacts.
   const [groupMembers, setGroupMembers] = useState<string[]>([]);
   useEffect(() => {
     fetch('/api/groups')
@@ -55,13 +55,10 @@ export default function InsightsPage() {
       .catch(() => {});
   }, []);
 
-  const priorityEmails = useMemo(() => {
-    const emails = new Set<string>(groupMembers.map(m => m.toLowerCase()));
-    for (const c of contacts) {
-      if (c.tags && c.tags.length > 0) emails.add(c.email.toLowerCase());
-    }
-    return emails;
-  }, [contacts, groupMembers]);
+  const priorityEmails = useMemo(
+    () => new Set<string>(groupMembers.map(m => m.toLowerCase())),
+    [groupMembers]
+  );
 
   const goingColdCount = useMemo(
     () => computeReconnectQueue(contacts, { limit: 50, priorityEmails }).length,
