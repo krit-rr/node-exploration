@@ -6,8 +6,8 @@ import Providers from "./providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Contact Network Manager",
-  description: "Manage your professional network contacts",
+  title: "Node",
+  description: "Manage your network with less headache",
 };
 
 export default function RootLayout({
