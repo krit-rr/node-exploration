@@ -6,7 +6,7 @@ import Providers from "./providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Node: Your network, mapped",
+  title: "Node",
   description: "Node remembers who you met and tells you who's going cold.",
 };
 
