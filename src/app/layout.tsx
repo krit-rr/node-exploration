@@ -6,8 +6,8 @@ import Providers from "./providers";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Node: Your network, mapped",
-  description: "Node remembers who you met and tells you who's going cold.",
+  title: "Node",
+  description: "Manage your network with less headache",
 };
 
 export default function RootLayout({
