@@ -126,6 +126,40 @@ addContact({
 // One contact with a custom field for the custom-column demo
 rows[0].custom_fields = [{ id: 'custom_where_we_met', label: 'Where we met', value: 'SF Climate Summit' }];
 
+// Circles: the same few people on the same emails, so "Circles you already
+// have" has something to suggest. A message lands on every member's history
+// with the others as participants, exactly as a sync records it.
+const emailFor = (person, domain) => person.toLowerCase().replace(/[^a-z ]/g, '').trim().replace(/ +/g, '.') + '@' + domain;
+const CIRCLE_SEED = [
+  { // one company's product trio
+    members: [emailFor('Ava Chen', 'lumenworks.io'), emailFor('Marcus Webb', 'lumenworks.io'), emailFor('Priya Nair', 'lumenworks.io')],
+    messages: [[9, 'Roadmap review'], [23, 'Pilot kickoff'], [41, 'Notes from our call']],
+  },
+  { // a deal team across two firms
+    members: [emailFor('Claire Hartley', 'hartleycapital.com'), emailFor('Sam Oduya', 'hartleycapital.com'), emailFor('Mia Tanaka', 'hartleycapital.com'), emailFor('Jordan Lee', 'northbeam.co')],
+    messages: [[14, 'Term sheet redline'], [35, 'Diligence call notes']],
+  },
+  { // the event crowd, across companies
+    members: [emailFor('Omar Haddad', 'kitefield.ai'), emailFor('Lily Zhang', 'kitefield.ai'), emailFor('Felix Brandt', 'bluefinlabs.dev')],
+    messages: [[5, 'Following up from the event'], [19, 'Coffee next week?'], [48, 'Intro: you two should meet']],
+  },
+];
+for (const circle of CIRCLE_SEED) {
+  for (const [daysAgo, subject] of circle.messages) {
+    const date = iso(daysAgo);
+    for (const email of circle.members) {
+      const row = rows.find(r => r.email === email);
+      if (!row) continue;
+      row.interactions.unshift({
+        date, channel: 'email', type: 'sent', subject,
+        snippet: 'Looping everyone in. Notes and next steps below.',
+        participants: circle.members.filter(m => m !== email),
+      });
+      if (new Date(date) > new Date(row.last_contacted)) row.last_contacted = date;
+    }
+  }
+}
+
 const { error } = await supabase.from('contacts').upsert(rows, { onConflict: 'owner_email,email' });
 if (error) {
   // Older databases predate the Phase A/B columns; seed what fits instead of dying.
@@ -137,7 +171,6 @@ if (error) {
 console.log(`Seeded ${rows.length} demo contacts for ${OWNER}`);
 
 // A group and two saved views so the organization features demo out of the box.
-const emailFor = (person, domain) => person.toLowerCase().replace(/[^a-z ]/g, '').trim().replace(/ +/g, '.') + '@' + domain;
 const groupSeed = [{
   owner_email: OWNER,
   id: 'seed-founder-dinner',

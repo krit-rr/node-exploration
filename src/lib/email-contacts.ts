@@ -27,6 +27,8 @@ export interface ContactInteraction {
   type: 'sent';
   subject?: string;
   snippet?: string;
+  /** The other recipients of the same message, when it went to a small group. */
+  participants?: string[];
 }
 
 export interface Contact {
@@ -40,6 +42,10 @@ export interface Contact {
 
 // Bounded per contact so a frequent correspondent doesn't dominate the payload
 const MAX_INTERACTIONS_PER_CONTACT = 20;
+
+// A message to more people than this is a broadcast, not a circle: its
+// co-recipients say nothing about who belongs together, so none are kept.
+const MAX_GROUP_RECIPIENTS = 20;
 
 export function isValidDate(dateStr: string): boolean {
   const date = new Date(dateStr);
@@ -56,6 +62,14 @@ export function aggregateContactsByLatestInteraction(messages: SentMessage[]): C
     }
     const sentDate = new Date(message.sentDateTime);
     const isoDate = sentDate.toISOString();
+
+    // Who else was on this message: the raw material for circles.
+    const addresses = Array.from(new Set(
+      message.recipients
+        .map(r => r.emailAddress.address.toLowerCase())
+        .filter(address => address.includes('@'))
+    ));
+    const groupMessage = addresses.length >= 2 && addresses.length <= MAX_GROUP_RECIPIENTS;
 
     for (const recipient of message.recipients) {
       const emailAddress = recipient.emailAddress.address.toLowerCase();
@@ -85,7 +99,8 @@ export function aggregateContactsByLatestInteraction(messages: SentMessage[]): C
           channel: 'email',
           type: 'sent',
           subject: message.subject,
-          snippet: message.snippet
+          snippet: message.snippet,
+          ...(groupMessage ? { participants: addresses.filter(address => address !== emailAddress) } : {}),
         });
       }
     }

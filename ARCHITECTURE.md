@@ -44,7 +44,7 @@ All tables: RLS on, no policies, service-role access only. Keyed by `owner_email
 
 | Table | Key | Holds |
 |---|---|---|
-| `contacts` | `(owner_email, email)` | name, company, industry, `last_contacted`, `interactions` jsonb (dated, with channel, subject, snippet), `custom_fields`, `tags`, `notes`, `is_spam`, `met_at`, `snoozed_until`, `introduced_by`, source |
+| `contacts` | `(owner_email, email)` | name, company, industry, `last_contacted`, `interactions` jsonb (dated, with channel, subject, snippet, and for small-group emails the other recipients), `custom_fields`, `tags`, `notes`, `is_spam`, `met_at`, `snoozed_until`, `introduced_by`, source |
 | `groups` | `(owner_email, id)` | name, `members` jsonb (email list); client-generated ids |
 | `views` | `(owner_email, id)` | name, `config` jsonb (search, filter, sort) |
 | `contact_embeddings` / `interaction_embeddings` | owner + content hash | pgvector embeddings for semantic search; hash-gated so unchanged content is never re-embedded |
@@ -73,7 +73,8 @@ Error responses are generic; details stay in server logs.
 
 ## Frontend structure
 
-- `src/app/contacts/page.tsx`: the core surface. `useContacts()` (single query key, network-first), the Going-cold `ReconnectRail`, filter chips (quick filters, groups, tags, saved views), the spreadsheet `ContactTable` with selection and bulk tagging, quick-add, import, export, cleanup assistant.
+- `src/app/contacts/page.tsx`: the core surface. `useContacts()` (single query key, network-first), the Going-cold `ReconnectRail`, `SuggestedCircles`, filter chips (quick filters, groups, tags, saved views), the spreadsheet `ContactTable` with selection and bulk tagging, quick-add, import, export, cleanup assistant.
+- `src/utils/circles.ts` and `src/components/SuggestedCircles.tsx`: circles, the groups the mail already implies. Each sent email's co-recipients form a set, weighted by a 90-day half-life (the implicit social graph Google built for Gmail, Roth et al. 2010); a set that recurs is suggested as a group to keep or dismiss, minus anything that already is a group. No model call. Dismissals live in localStorage per user and are purged on sign-out.
 - `src/app/insights/page.tsx`: compact rail, `NetworkScore` (priority-aware, computed), `SmartInsights` groupings, activity timeline. Everything memoized; widgets wrapped in error boundaries.
 - `src/hooks/useContacts.ts`: the one contacts query plus `persistContacts` and `syncContacts`. All cache writers produce the same shape.
 - `src/utils/reconnect.ts`: the going-cold queue (45-day threshold, spam and no-reply excluded, snoozes respected, priority contacts first).
