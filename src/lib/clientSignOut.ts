@@ -10,7 +10,7 @@ import { signOut } from 'next-auth/react';
 export async function signOutAndPurge(userEmail?: string | null): Promise<void> {
   try {
     if (userEmail) {
-      for (const prefix of ['contacts_', 'contact-groups_', 'contact-filter_', 'enrichment-cache_']) {
+      for (const prefix of ['contacts_', 'contact-groups_', 'contact-filter_', 'enrichment-cache_', 'dismissed-circles_']) {
         localStorage.removeItem(`${prefix}${userEmail}`);
       }
       localStorage.removeItem(`cleanup-shown-in-session-${userEmail}`);

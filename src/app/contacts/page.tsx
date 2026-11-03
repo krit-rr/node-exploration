@@ -22,6 +22,7 @@ import React from 'react';
 import DomainStats from '@/components/DomainStats';
 import { useContacts, syncContacts, getContactsStorageKey, persistContacts, type ContactsData } from '@/hooks/useContacts';
 import ReconnectRail from '@/components/ReconnectRail';
+import SuggestedCircles from '@/components/SuggestedCircles';
 import QuickAddModal from '@/components/QuickAddModal';
 import TriageModal from '@/components/TriageModal';
 import MergeModal from '@/components/MergeModal';
@@ -1906,6 +1907,14 @@ function ContactsContent() {
             onSnoozed={handleSnoozed}
             onTouchLogged={handleTouchLogged}
             priorityEmails={priorityEmails}
+          />
+
+          {/* Circles: the groups the mail already implies */}
+          <SuggestedCircles
+            contacts={displayContacts}
+            groups={groups}
+            userEmail={userEmail}
+            onCreateGroup={handleCreateGroup}
           />
 
           {/* Enhanced Table Section */}

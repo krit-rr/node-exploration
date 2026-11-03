@@ -301,7 +301,7 @@ export default function Auth() {
                     </svg>
                     <div>
                       <p className="font-medium text-[#1E1E3F]">Minimal Storage</p>
-                      <p className="text-sm text-gray-600">We store contact details and a search index of subjects and short snippets so features like semantic search work. Full email bodies are never stored.</p>
+                      <p className="text-sm text-gray-600">We store contact details, which of your contacts were on the same emails (to suggest groups), and a search index of subjects and short snippets so features like semantic search work. Full email bodies are never stored.</p>
                     </div>
                   </li>
                   <li className="flex items-start gap-3 bg-[#F4F4FF] p-3 rounded-lg transition-transform hover:scale-[1.01]">
