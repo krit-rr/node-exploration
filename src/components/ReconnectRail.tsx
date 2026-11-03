@@ -20,7 +20,16 @@ interface Props {
 function since(days: number): string {
   if (days >= 365) return `${Math.floor(days / 365)}y`;
   if (days >= 60) return `${Math.floor(days / 30)}mo`;
+  if (days >= 14) return `${Math.round(days / 7)}w`;
   return `${days}d`;
+}
+
+/** Why this card is here, against the pair's own rhythm or the user's. */
+function rhythmTitle(candidate: ReconnectCandidate): string {
+  const pct = Math.round(candidate.overdue * 100);
+  return candidate.cadence.source === 'pair'
+    ? `${pct}% past this relationship's own rhythm, learned from ${candidate.cadence.gaps} past gaps`
+    : `${pct}% past your typical gap; too little history with this person to know their own rhythm yet`;
 }
 
 const CHANNELS: { key: TouchChannel; label: string }[] = [
@@ -108,10 +117,12 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
                   {candidate.contact.company || email}
                 </p>
               </div>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-400" title={rhythmTitle(candidate)}>
                 {candidate.neverTouched
                   ? <>Added {since(candidate.daysSince)} ago, no touch yet</>
-                  : <>Last touch {since(candidate.daysSince)} ago</>}
+                  : candidate.cadence.source === 'pair'
+                    ? <>Usually every {since(Math.round(candidate.cadence.typicalDays))}, quiet for {since(candidate.daysSince)}</>
+                    : <>Last touch {since(candidate.daysSince)} ago</>}
                 {candidate.lastSubject ? <> &middot; <span className="italic">&ldquo;{candidate.lastSubject}&rdquo;</span></> : null}
               </p>
               {candidate.contact.metAt && (

@@ -1,4 +1,12 @@
 import { Contact } from '@/types';
+import {
+  estimateCadence,
+  gapsBetween,
+  overdueProbability,
+  touchDays,
+  userPrior,
+  type CadenceEstimate,
+} from '@/utils/cadence';
 
 export interface ReconnectCandidate {
   contact: Contact;
@@ -7,12 +15,21 @@ export interface ReconnectCandidate {
   neverTouched: boolean;
   lastSubject?: string;
   priority: boolean;
+  /** 0 to 1: how far past this relationship's own typical gap the silence has run. */
+  overdue: number;
+  cadence: CadenceEstimate;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Default: a relationship starts "going cold" after 45 untouched days. */
+/** Default: a relationship with no rhythm of its own starts "going cold" after 45 untouched days. */
 export const DEFAULT_COLD_DAYS = 45;
+
+/** In the queue once the silence is more likely than not to be past the pair's typical gap. */
+export const OVERDUE_THRESHOLD = 0.5;
+
+/** Under two weeks of silence is ordinary life whatever the pair's rhythm; never flag it. */
+export const MIN_SILENCE_DAYS = 14;
 
 /**
  * The one tag that marks a priority relationship. Any other tag is just
@@ -45,9 +62,9 @@ export function lastTouchTime(contact: Contact): { time: number; neverTouched: b
 }
 
 /**
- * The reconnect queue: real contacts going cold, oldest first.
- * Excludes spam-flagged contacts, obvious non-people (no-reply/newsletter
- * style addresses), and anything currently snoozed.
+ * The reconnect queue: real contacts going cold, judged against their own
+ * rhythm. Excludes spam-flagged contacts, obvious non-people (no-reply and
+ * newsletter style addresses), and anything currently snoozed.
  */
 export function computeReconnectQueue(
   contacts: Contact[],
@@ -58,6 +75,7 @@ export function computeReconnectQueue(
   }: { coldDays?: number; limit?: number; priorityEmails?: Set<string> } = {}
 ): ReconnectCandidate[] {
   const now = Date.now();
+  const prior = userPrior(contacts, coldDays);
   const candidates: ReconnectCandidate[] = [];
 
   for (const contact of contacts) {
@@ -68,7 +86,13 @@ export function computeReconnectQueue(
     const touch = lastTouchTime(contact);
     if (!touch) continue;
     const daysSince = Math.floor((now - touch.time) / DAY_MS);
-    if (daysSince < coldDays) continue;
+    if (daysSince < MIN_SILENCE_DAYS) continue;
+
+    const cadence = touch.neverTouched
+      ? estimateCadence([], prior)
+      : estimateCadence(gapsBetween(touchDays(contact)), prior);
+    const overdue = overdueProbability(daysSince, cadence);
+    if (overdue < OVERDUE_THRESHOLD) continue;
 
     const sent = (contact.interactions ?? []).filter(i => i.type === 'sent');
     const lastWithSubject = [...sent].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -80,13 +104,17 @@ export function computeReconnectQueue(
       neverTouched: touch.neverTouched,
       lastSubject: lastWithSubject?.subject,
       priority: isPriorityContact(contact, priorityEmails),
+      overdue,
+      cadence,
     });
   }
 
-  // Priority relationships first (key-contact or in a group), then the
-  // oldest: the ones closest to being lost.
-  candidates.sort((a, b) =>
-    a.priority === b.priority ? b.daysSince - a.daysSince : (a.priority ? -1 : 1)
-  );
+  // Priority relationships first (key-contact or in a group), then the most
+  // overdue against their own rhythm, then the longest silence.
+  candidates.sort((a, b) => {
+    if (a.priority !== b.priority) return a.priority ? -1 : 1;
+    if (b.overdue !== a.overdue) return b.overdue - a.overdue;
+    return b.daysSince - a.daysSince;
+  });
   return candidates.slice(0, limit);
 }
