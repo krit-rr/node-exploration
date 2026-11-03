@@ -141,10 +141,10 @@ export async function listContacts(
 /**
  * Merge provider-derived contacts into the store.
  *
- * Provider data wins on recency (lastContacted, interactions); stored user
- * data wins on identity and intent (name edits, company/industry enrichment,
- * custom fields, tags, notes, spam flags). Rows the provider no longer
- * returns are left untouched.
+ * History is combined and the newest touch wins on recency, whichever side
+ * recorded it; stored user data wins on identity and intent (name edits,
+ * company/industry enrichment, custom fields, tags, notes, spam flags). Rows
+ * the provider no longer returns are left untouched.
  */
 export async function mergeProviderContacts(
   owner: string,
@@ -199,11 +199,11 @@ export async function mergeProviderContacts(
   const rows = Array.from(byTarget.entries()).map(([email, group]) => {
     const prior = existing.get(email);
     const direct = group.find((c) => c.email.toLowerCase() === email) ?? group[0];
-    const redirected = group.some((c) => c.email.toLowerCase() !== email);
-    // A merged row's history spans addresses the provider reports separately
-    // (or no longer reports at all), so combine instead of the usual
-    // provider-wins replacement; plain rows keep the replacement semantics.
-    const spansAddresses = redirected || asArray(prior?.alt_emails).length > 0;
+    // History is combined, never replaced: a logged call or meeting, an
+    // imported last-emailed date, and emails that have since left the
+    // provider's window all outlive the next sync, and the reconnect queue
+    // learns a pair's rhythm from the gaps between them. Merged rows span
+    // addresses the provider reports separately; the same combine covers them.
     const incomingLatest = group.reduce<string | null>(
       (latest, c) => latestIso(latest, c.lastContacted || null),
       null
@@ -216,15 +216,11 @@ export async function mergeProviderContacts(
       name: prior?.name || direct.name || email,
       company: direct.company ?? prior?.company ?? null,
       industry: direct.industry ?? prior?.industry ?? null,
-      last_contacted: spansAddresses
-        ? latestIso(incomingLatest, prior?.last_contacted ?? null)
-        : direct.lastContacted || prior?.last_contacted || null,
-      interactions: spansAddresses
-        ? combineInteractions([
-            ...group.flatMap((c) => c.interactions ?? []),
-            ...(asArray(prior?.interactions) as Interaction[]),
-          ])
-        : direct.interactions ?? [],
+      last_contacted: latestIso(incomingLatest, prior?.last_contacted ?? null),
+      interactions: combineInteractions([
+        ...group.flatMap((c) => c.interactions ?? []),
+        ...(asArray(prior?.interactions) as Interaction[]),
+      ]),
       source: provider,
       enriched_by: direct.enrichedBy ?? null,
       updated_at: now,
