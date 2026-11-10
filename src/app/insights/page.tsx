@@ -17,6 +17,7 @@ import ReconnectRail from '@/components/ReconnectRail';
 import IntroSuggestions from '@/components/IntroSuggestions';
 import DigestSettings from '@/components/DigestSettings';
 import HistoryReach from '@/components/HistoryReach';
+import AskNetwork from '@/components/AskNetwork';
 import RehearsalCard from '@/components/RehearsalCard';
 import toast from 'react-hot-toast';
 
@@ -114,6 +115,10 @@ export default function InsightsPage() {
                   priorityEmails={priorityEmails}
                   compact
                 />
+              </ErrorBoundary>
+
+              <ErrorBoundary label="AskNetwork">
+                <AskNetwork />
               </ErrorBoundary>
 
               <ErrorBoundary label="DigestSettings">
