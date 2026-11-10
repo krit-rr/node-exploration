@@ -1,11 +1,5 @@
 import { Client } from "@microsoft/microsoft-graph-client";
-import {
-  aggregateContactsByLatestInteraction,
-  isValidDate,
-  type Contact,
-  type EmailContact,
-  type SentMessage,
-} from './email-contacts';
+import { isValidDate, type EmailContact, type SentMessage } from './email-contacts';
 
 export type { Contact, ContactInteraction } from './email-contacts';
 
@@ -29,17 +23,21 @@ export class GraphClient {
     });
   }
 
-  async getSentEmails(limit: number = 100): Promise<SentMessage[]> {
-    const response = await this.client.api('/me/mailFolders/sentItems/messages')
+  /** The newest `limit` sent messages, or with `before`, the newest ones older than that moment. */
+  async getSentEmails({ limit = 100, before }: { limit?: number; before?: number } = {}): Promise<SentMessage[]> {
+    let request = this.client.api('/me/mailFolders/sentItems/messages')
       .select('sentDateTime,toRecipients,ccRecipients,bccRecipients,subject,bodyPreview')
       .top(limit)
-      .orderby('sentDateTime desc')
-      .get();
+      .orderby('sentDateTime desc');
+    // Graph wants the ordering property in the filter too; sentDateTime is both.
+    if (before) request = request.filter(`sentDateTime lt ${new Date(before).toISOString()}`);
+    const response = await request.get();
 
     return (response.value as GraphMessage[])
       .filter(message => isValidDate(message.sentDateTime))
       .map(message => ({
         sentDateTime: message.sentDateTime,
+        internalTime: new Date(message.sentDateTime).getTime(),
         recipients: [
           ...(message.toRecipients ?? []),
           ...(message.ccRecipients ?? []),
@@ -48,9 +46,5 @@ export class GraphClient {
         subject: message.subject || undefined,
         snippet: message.bodyPreview || undefined
       }));
-  }
-
-  async getUniqueContactsByLatestInteraction(): Promise<Contact[]> {
-    return aggregateContactsByLatestInteraction(await this.getSentEmails());
   }
 }

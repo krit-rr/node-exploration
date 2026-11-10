@@ -1,31 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GraphClient } from "@/lib/graph-client";
-import { GmailClient } from "@/lib/gmail-client";
 import { getToken } from "next-auth/jwt";
 import { Contact } from "@/types";
 import { enrichBatchViaAI } from "@/utils/enrichBatchViaAI";
 import { listContacts, mergeProviderContacts, upsertImportedContacts } from "@/lib/contactsStore";
+import { oldestMessageTime } from "@/lib/email-contacts";
+import { BACKFILL_PAGE, contactsFromMessages, providerClient, type MailProvider } from "@/lib/mailSync";
+import { seedSyncCursor } from "@/lib/syncStore";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 import { rateLimit } from "@/lib/rateLimit";
 
-type Provider = 'google' | 'microsoft-entra-id';
+type Provider = MailProvider;
 
-async function fetchProviderContacts(provider: Provider, accessToken: string): Promise<Contact[]> {
-  const client = provider === 'google' ? new GmailClient(accessToken) : new GraphClient(accessToken);
-  const contacts = await client.getUniqueContactsByLatestInteraction();
-
-  return contacts.map(contact => ({
-    id: contact.email, // store assigns the durable uuid on merge
-    name: contact.name,
-    email: contact.email,
-    lastContacted: contact.lastContacted,
-    sentDates: (contact.interactions ?? []).map(i => i.date),
-    interactions: contact.interactions ?? [],
-    provider
-  }));
+/** The newest page of sent mail as contacts, plus where that page ends so the backfill can continue from it. */
+async function fetchProviderContacts(provider: Provider, accessToken: string): Promise<{ contacts: Contact[]; oldest: number | null; messages: number }> {
+  const messages = await providerClient(provider, accessToken).getSentEmails({ limit: BACKFILL_PAGE });
+  return { contacts: contactsFromMessages(messages, provider), oldest: oldestMessageTime(messages), messages: messages.length };
 }
 
 /**
@@ -100,7 +92,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const providerContacts = await fetchProviderContacts(provider, token.accessToken);
+    const page = await fetchProviderContacts(provider, token.accessToken);
+    const providerContacts = page.contacts;
 
     // With a store, enrichment runs out-of-band (POST /api/contacts/enrich,
     // triggered by the client) so a sync isn't blocked on OpenAI; without
@@ -124,6 +117,10 @@ export async function GET(request: NextRequest) {
             contacts = merged.contacts;
             persisted = true;
           }
+          // Older mail is read a few pages per visit from where this page ended.
+          seedSyncCursor(owner, provider, page.oldest, page.messages).catch(error => {
+            console.error('Could not seed the backfill cursor:', error);
+          });
         }
       } catch (error) {
         console.error("Failed to persist provider contacts (serving unmerged):", error);

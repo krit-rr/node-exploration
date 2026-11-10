@@ -16,6 +16,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import ReconnectRail from '@/components/ReconnectRail';
 import IntroSuggestions from '@/components/IntroSuggestions';
 import DigestSettings from '@/components/DigestSettings';
+import HistoryReach from '@/components/HistoryReach';
 import RehearsalCard from '@/components/RehearsalCard';
 import toast from 'react-hot-toast';
 
@@ -99,6 +100,10 @@ export default function InsightsPage() {
               <h1 className="text-2xl font-bold text-[#1E1E3F]">Network Analytics</h1>
               <TimeframeSelector selected={selectedTimeframe} onChange={setSelectedTimeframe} />
             </div>
+
+            <ErrorBoundary label="HistoryReach">
+              <HistoryReach />
+            </ErrorBoundary>
 
             <div className="space-y-8">
               <ErrorBoundary label="ReconnectRail">
