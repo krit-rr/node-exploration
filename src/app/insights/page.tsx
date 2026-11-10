@@ -13,6 +13,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import ReconnectRail from '@/components/ReconnectRail';
 import IntroSuggestions from '@/components/IntroSuggestions';
 import DigestSettings from '@/components/DigestSettings';
+import RehearsalCard from '@/components/RehearsalCard';
 import toast from 'react-hot-toast';
 
 export default function InsightsPage() {
@@ -100,6 +101,10 @@ export default function InsightsPage() {
 
               <ErrorBoundary label="IntroSuggestions">
                 <IntroSuggestions />
+              </ErrorBoundary>
+
+              <ErrorBoundary label="RehearsalCard">
+                <RehearsalCard contacts={contacts} />
               </ErrorBoundary>
 
               <ErrorBoundary label="NetworkScore">
