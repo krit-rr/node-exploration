@@ -11,6 +11,7 @@ import { useEffect, useMemo } from 'react';
 import { computeReconnectQueue } from '@/utils/reconnect';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ReconnectRail from '@/components/ReconnectRail';
+import IntroSuggestions from '@/components/IntroSuggestions';
 import toast from 'react-hot-toast';
 
 export default function InsightsPage() {
@@ -90,6 +91,10 @@ export default function InsightsPage() {
                   priorityEmails={priorityEmails}
                   compact
                 />
+              </ErrorBoundary>
+
+              <ErrorBoundary label="IntroSuggestions">
+                <IntroSuggestions />
               </ErrorBoundary>
 
               <ErrorBoundary label="NetworkScore">
