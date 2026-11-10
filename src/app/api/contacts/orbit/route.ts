@@ -32,6 +32,9 @@ export async function POST(request: Request) {
     }
     try {
       const result = await setIntendedLayer(owner, email, layer);
+      if (result.available && !result.found) {
+        return NextResponse.json({ persisted: false, reason: 'not-found' });
+      }
       return NextResponse.json({ persisted: result.available });
     } catch (error) {
       console.error('Orbit persistence failed:', error);
