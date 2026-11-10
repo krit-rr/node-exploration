@@ -8,18 +8,12 @@ import toast from 'react-hot-toast';
 import OrbitMap from '@/components/OrbitMap';
 import { persistContacts, useContacts, type ContactsData } from '@/hooks/useContacts';
 import { computeOrbit, contactsAsOf, LAYER_NAMES } from '@/utils/orbit';
+import { cadenceStatus } from '@/utils/reconnect';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_WEEKS_BACK = 52;
 
 type Intent = 1 | 2 | 3 | 4 | null;
-
-function since(days: number): string {
-  if (days >= 365) return `${Math.floor(days / 365)}y`;
-  if (days >= 60) return `${Math.floor(days / 30)}mo`;
-  if (days >= 14) return `${Math.round(days / 7)}w`;
-  return `${days}d`;
-}
 
 const INTENT_OPTIONS: { layer: Intent; label: string }[] = [
   { layer: 1, label: 'Closest 5' },
@@ -66,15 +60,20 @@ export default function OrbitPage() {
   const point = layout.points.find(p => p.email === selected) ?? null;
   const goingCold = layout.points.filter(p => p.goingCold).length;
 
-  const setIntent = async (email: string, layer: Intent) => {
-    // Optimistic: the map and the other pages see the new intent at once.
-    const updated = contacts.map(c =>
-      c.email.toLowerCase() === email ? { ...c, intendedLayer: layer ?? undefined } : c
-    );
+  const applyContacts = (next: typeof contacts) => {
     queryClient.setQueryData<ContactsData>(['sentRecipients', userEmail], old =>
-      old ? { ...old, contacts: updated } : old
+      old ? { ...old, contacts: next } : old
     );
-    if (userEmail) persistContacts(userEmail, updated);
+    if (userEmail) persistContacts(userEmail, next);
+  };
+
+  const setIntent = async (email: string, layer: Intent) => {
+    // Optimistic: the map and the other pages see the new intent at once,
+    // and the previous list comes back if the server says no.
+    const previous = contacts;
+    applyContacts(contacts.map(c =>
+      c.email.toLowerCase() === email ? { ...c, intendedLayer: layer ?? undefined } : c
+    ));
     try {
       const response = await fetch('/api/contacts/orbit', {
         method: 'POST',
@@ -84,12 +83,15 @@ export default function OrbitPage() {
       if (!response.ok) throw new Error(String(response.status));
       const body = await response.json();
       if (!body.persisted) {
-        toast('Kept for this session only: run the orbit migration to save it', {
+        toast(body.reason === 'not-found'
+          ? 'Kept for this session only: this person is not in your synced list yet'
+          : 'Kept for this session only: run the orbit migration to save it', {
           style: { backgroundColor: '#F4F4FF', color: '#1E1E3F' },
         });
       }
     } catch {
-      toast.error('Could not save where you put them');
+      applyContacts(previous);
+      toast.error('Could not save where you put them; the dot is back where it was');
     }
   };
 
@@ -152,13 +154,7 @@ export default function OrbitPage() {
                     <p className="font-semibold text-[#1E1E3F] truncate">{point.contact.name}</p>
                     <p className="text-xs text-gray-500 truncate">{point.contact.company || point.email}</p>
                   </div>
-                  <p className="text-xs text-gray-500">
-                    {point.assessment.neverTouched
-                      ? <>Added {since(point.assessment.daysSince)} ago, no touch yet</>
-                      : point.assessment.cadence.source === 'pair'
-                        ? <>Usually every {since(Math.round(point.assessment.cadence.typicalDays))}, quiet for {since(point.assessment.daysSince)}</>
-                        : <>Last touch {since(point.assessment.daysSince)} ago</>}
-                  </p>
+                  <p className="text-xs text-gray-500">{cadenceStatus(point.assessment)}</p>
                   <p className="text-xs text-gray-500">
                     Sits in your {LAYER_NAMES[point.layer - 1]} by activity
                     {point.goingCold ? <span className="ml-1 text-[#B45309]">· going cold</span> : null}

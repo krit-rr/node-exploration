@@ -159,9 +159,11 @@ for (const [email, layer] of [['jordan.lee@northbeam.co', 2], ['felix.brandt@blu
 }
 
 // Columns added by later migrations, newest first. A database that is a
-// migration or more behind rejects the unknown column; drop the newest
-// optional columns one at a time until the upsert fits, and say what was left out.
-const OPTIONAL_COLUMNS = ['memory', 'intended_layer', 'met_at', 'snoozed_until', 'introduced_by'];
+// migration or more behind rejects the unknown column (PostgREST PGRST204,
+// Postgres 42703); drop the newest optional columns one at a time until the
+// upsert fits, and say what was left out. Any other error stops the seed.
+const OPTIONAL_COLUMNS = ['memory', 'intended_layer', 'introduced_by', 'met_at', 'snoozed_until'];
+const missingColumn = (err) => err?.code === 'PGRST204' || err?.code === '42703';
 let error = null;
 for (let drop = 0; drop <= OPTIONAL_COLUMNS.length; drop++) {
   const dropped = new Set(OPTIONAL_COLUMNS.slice(0, drop));
@@ -173,6 +175,7 @@ for (let drop = 0; drop <= OPTIONAL_COLUMNS.length; drop++) {
     if (drop > 0) console.warn(`Contact columns missing (${[...dropped].join(', ')}); seeded without them.`);
     break;
   }
+  if (!missingColumn(error)) break;
 }
 if (error) throw new Error(error.message);
 console.log(`Seeded ${rows.length} demo contacts for ${OWNER}`);

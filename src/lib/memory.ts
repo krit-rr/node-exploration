@@ -1,5 +1,6 @@
-import OpenAI from 'openai';
 import { createHash } from 'crypto';
+import { getOpenAI, openaiConfigured } from '@/lib/openai';
+import { textInteractions } from '@/utils/interactions';
 import type { Contact, ContactMemory, OpenLoop } from '@/types';
 
 /**
@@ -25,31 +26,34 @@ const MAX_SOURCE_LINES = 20;
 export const MAX_OPEN_LOOPS = 4;
 const MAX_LOOP_TEXT = 140;
 const MAX_SUMMARY = 240;
+/** Room for two sentences and four loops with headroom; an answer cut off at this limit is rejected, not parsed. */
+const MAX_OUTPUT_TOKENS = 600;
 
-/** The lines the model reads: newest first, one per interaction that carries any text. */
-export function memorySourceLines(contact: Contact): string[] {
-  const interactions = [...(contact.interactions ?? [])]
-    .filter(i => i.date && (i.subject?.trim() || i.snippet?.trim()))
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, MAX_SOURCE_LINES);
-  return interactions.map(i => {
-    const day = String(i.date).slice(0, 10);
-    const who = i.type === 'received' ? 'they wrote' : 'you wrote';
-    const subject = clean(i.subject ?? '', 200);
-    const snippet = clean(i.snippet ?? '', 300);
-    return `${day} ${who}: ${subject}${snippet ? ` | ${snippet}` : ''}`;
-  });
+export interface MemorySource {
+  /** The lines the model reads: newest first, one per interaction that carries any text. */
+  lines: string[];
+  /** Hash of the lines and the prompt version; unchanged history never costs another model call. */
+  hash: string;
 }
 
-export function memorySourceHash(lines: string[]): string {
-  return createHash('sha256').update(`${PROMPT_VERSION}\n${lines.join('\n')}`).digest('hex');
+/** What the model would read for this contact, and its hash, computed once per contact. */
+export function memorySource(contact: Contact): MemorySource {
+  const lines = textInteractions(contact)
+    .slice(0, MAX_SOURCE_LINES)
+    .map(i => {
+      const day = String(i.date).slice(0, 10);
+      const who = i.type === 'received' ? 'they wrote' : 'you wrote';
+      const subject = clean(i.subject ?? '', 200);
+      const snippet = clean(i.snippet ?? '', 300);
+      return `${day} ${who}: ${subject}${snippet ? ` | ${snippet}` : ''}`;
+    });
+  return { lines, hash: createHash('sha256').update(`${PROMPT_VERSION}\n${lines.join('\n')}`).digest('hex') };
 }
 
 /** True when there is something to read and the stored memory does not already cover it. */
-export function needsMemory(contact: Contact): boolean {
-  const lines = memorySourceLines(contact);
-  if (lines.length === 0) return false;
-  return contact.memory?.sourceHash !== memorySourceHash(lines);
+export function needsMemory(contact: Contact, source: MemorySource): boolean {
+  if (source.lines.length === 0) return false;
+  return contact.memory?.sourceHash !== source.hash;
 }
 
 function clean(text: string, max: number): string {
@@ -89,45 +93,36 @@ Return exactly this JSON shape:
 summary: at most two short plain sentences: what this relationship is about, and what changed most recently. Empty string if the lines do not say.
 openLoops: promises or asks that look unresolved as of the newest line, at most 4, most recent first. "who" is "you" when the person writing promised or owes something, "them" when the contact did. "text" is the thing owed as a short verb phrase without a subject, for example "send the deck by Friday". "date" is the date of the line it comes from, copied exactly. Leave out anything vague or already resolved in a later line. Empty array if none.`;
 
-let client: OpenAI | null = null;
-function getClient(): OpenAI | null {
-  if (!process.env.OPENAI_API_KEY) return null;
-  if (!client) client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  return client;
-}
-
-export function memoryAvailable(): boolean {
-  return Boolean(process.env.OPENAI_API_KEY);
-}
-
 /**
  * Read a contact's memory from their stored interactions. Returns null when
- * there is nothing to read or no model is configured. Throws on API failure
- * so the route can report it.
+ * there is nothing to read or no model is configured. Throws when the model
+ * call fails or its answer is cut off or unparseable, so the route reports
+ * the failure and nothing half-read is stored against the source hash.
  */
-export async function extractMemory(contact: Contact): Promise<ContactMemory | null> {
-  const lines = memorySourceLines(contact);
-  if (lines.length === 0) return null;
-  const openai = getClient();
-  if (!openai) return null;
+export async function extractMemory(contact: Contact, source: MemorySource): Promise<ContactMemory | null> {
+  if (source.lines.length === 0 || !openaiConfigured()) return null;
 
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: process.env.OPENAI_MEMORY_MODEL || 'gpt-4o-mini',
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: `Contact: ${clean(contact.name || contact.email, 80)}\n\n${lines.join('\n')}` },
+      { role: 'user', content: `Contact: ${clean(contact.name || contact.email, 80)}\n\n${source.lines.join('\n')}` },
     ],
     temperature: 0,
-    max_tokens: 400,
+    max_tokens: MAX_OUTPUT_TOKENS,
     response_format: { type: 'json_object' },
   });
 
-  let parsed: unknown = {};
-  try {
-    parsed = JSON.parse(completion.choices[0]?.message?.content || '{}');
-  } catch {
-    parsed = {};
+  const choice = completion.choices[0];
+  if (!choice || choice.finish_reason === 'length') {
+    throw new Error('Memory answer was cut off before it finished');
   }
-  const { summary, openLoops } = normalizeMemory(parsed, lines);
-  return { summary, openLoops, sourceHash: memorySourceHash(lines), updatedAt: new Date().toISOString() };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(choice.message?.content || '');
+  } catch {
+    throw new Error('Memory answer was not valid JSON');
+  }
+  const { summary, openLoops } = normalizeMemory(parsed, source.lines);
+  return { summary, openLoops, sourceHash: source.hash, updatedAt: new Date().toISOString() };
 }
