@@ -9,6 +9,8 @@ interface ImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImportComplete: (newContacts: Contact[], eventName?: string) => void;
+  /** The file was saved as an event's attendee list instead of imported; tick who you met during the event. */
+  onRosterSaved?: (eventName: string, count: number) => void;
   /** Event mode: prefill the event stamp for this import. */
   defaultEventName?: string;
 }
@@ -178,7 +180,9 @@ function transformRowToCanonical(row: CSVContact): Record<string, string> {
   return { name, email, company, industry, lastEmailed };
 }
 
-export default function ImportModal({ isOpen, onClose, onImportComplete, defaultEventName }: ImportModalProps) {
+export default function ImportModal({ isOpen, onClose, onImportComplete, onRosterSaved, defaultEventName }: ImportModalProps) {
+  // With an event named, the file is either everyone met there, or the attendee list to tick during it.
+  const [asRoster, setAsRoster] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string>('');
   const [, setImporting] = useState(false);
@@ -289,6 +293,31 @@ export default function ImportModal({ isOpen, onClose, onImportComplete, default
             const canonical = transformRowToCanonical(row);
             return stampedEvent ? { ...canonical, metAt: stampedEvent } : canonical;
           });
+
+          // A roster is kept apart from contacts until the people on it are ticked as met.
+          if (stampedEvent && asRoster && onRosterSaved) {
+            try {
+              const response = await fetch('/api/rosters', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  event: stampedEvent,
+                  entries: contacts.map(c => ({ email: c.email, name: c.name, company: c.company ?? '', position: (c as { position?: string }).position ?? '' })),
+                }),
+              });
+              const body = await response.json().catch(() => null);
+              if (!response.ok) throw new Error(body?.error || `Server error: ${response.status}`);
+              if (!body?.persisted) throw new Error('The rosters table is not set up yet; import the file as people you met instead');
+              onRosterSaved(stampedEvent, Number(body.count) || 0);
+              resetState();
+              onClose();
+            } catch (err) {
+              setError(err instanceof Error ? `Roster not saved: ${err.message}` : 'Failed to save the roster. Please try again.');
+              setImporting(false);
+              setStep('preview');
+            }
+            return;
+          }
 
           // Validate contacts before sending
           const validationErrors = contacts.map((contact, index) => {
@@ -453,6 +482,18 @@ export default function ImportModal({ isOpen, onClose, onImportComplete, default
               <p className="text-xs text-gray-500 mt-1.5">
                 Stamps where-you-met on every imported contact and pins the event as a filter, ready to triage.
               </p>
+              {eventName.trim() && onRosterSaved && (
+                <div className="mt-3 space-y-1.5 text-sm">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input type="radio" name="import-kind" checked={!asRoster} onChange={() => setAsRoster(false)} className="mt-1 accent-[#1E1E3F]" />
+                    <span><span className="font-medium text-[#1E1E3F]">Everyone in this file is someone I met.</span> <span className="text-gray-500">They become contacts now.</span></span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input type="radio" name="import-kind" checked={asRoster} onChange={() => setAsRoster(true)} className="mt-1 accent-[#1E1E3F]" />
+                    <span><span className="font-medium text-[#1E1E3F]">This is the attendee list.</span> <span className="text-gray-500">Keep it aside; I will tick who I met during the event, and only they become contacts.</span></span>
+                  </label>
+                </div>
+              )}
             </div>
             <div className="bg-[#F4F4FF] p-6 rounded-lg">
               <h3 className="font-semibold text-[#1E1E3F] text-lg mb-3">Import Summary</h3>

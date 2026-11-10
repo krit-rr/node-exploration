@@ -27,6 +27,7 @@ const BACKFILL_PAGES_PER_VISIT = 3;
 import ReconnectRail from '@/components/ReconnectRail';
 import QuickAddModal from '@/components/QuickAddModal';
 import TriageModal from '@/components/TriageModal';
+import RosterModal from '@/components/RosterModal';
 import MergeModal from '@/components/MergeModal';
 import { findDuplicatePairs, makePair, pairKey, type DuplicatePair } from '@/utils/duplicates';
 import { getCurrentEvent, setCurrentEvent, clearCurrentEvent, type CurrentEvent } from '@/utils/currentEvent';
@@ -238,6 +239,27 @@ function ContactsContent() {
   const [settingEvent, setSettingEvent] = useState(false);
   const [eventDraft, setEventDraft] = useState('');
   const [showTriage, setShowTriage] = useState(false);
+
+  // Event rosters: attendee lists kept aside until the people on them are ticked as met.
+  type RosterSummary = { event: string; count: number; updatedAt: string };
+  const [rosters, setRosters] = useState<RosterSummary[]>([]);
+  const [rosterOpen, setRosterOpen] = useState<string | null>(null);
+  const loadRosters = useCallback(() => {
+    fetch('/api/rosters')
+      .then(response => (response.ok ? response.json() : null))
+      .then(body => setRosters(Array.isArray(body?.rosters) ? body.rosters.filter((r: RosterSummary) => r.count > 0) : []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (userEmail) loadRosters();
+  }, [userEmail, loadRosters]);
+  const handleRosterSaved = (eventName: string, count: number) => {
+    toast.success(`Roster saved: ${count} ${count === 1 ? 'person' : 'people'} for ${eventName}. Tick who you meet as you go.`);
+    const event = setCurrentEvent(eventName);
+    if (event) setCurrentEventState(event);
+    loadRosters();
+    setRosterOpen(eventName);
+  };
 
   // Duplicate merge: review pairs the detector found, or two hand-picked rows.
   const [showMergeModal, setShowMergeModal] = useState(false);
@@ -1778,6 +1800,16 @@ function ContactsContent() {
                     showSelectedIcon={true}
                   />
                 ))}
+                {rosters.map(roster => (
+                  <button
+                    key={`roster-${roster.event}`}
+                    onClick={() => setRosterOpen(roster.event)}
+                    className="flex-none flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-full border border-[#1E1E3F]/30 text-[#1E1E3F] hover:bg-[#F4F4FF] transition-colors"
+                    title={`${roster.count} on the ${roster.event} roster not yet ticked as met`}
+                  >
+                    Roster: {roster.event} ({roster.count})
+                  </button>
+                ))}
                 {filter.startsWith('event-') && triageContacts.length > 0 && (
                   <button
                     onClick={() => setShowTriage(true)}
@@ -2166,8 +2198,18 @@ function ContactsContent() {
           isOpen={showImportModal}
           onClose={() => setShowImportModal(false)}
           onImportComplete={handleImportComplete}
+          onRosterSaved={handleRosterSaved}
           defaultEventName={currentEvent?.name}
         />
+        {rosterOpen && (
+          <RosterModal
+            isOpen={Boolean(rosterOpen)}
+            onClose={() => setRosterOpen(null)}
+            event={rosterOpen}
+            onMet={handleImportComplete}
+            onRosterChanged={() => loadRosters()}
+          />
+        )}
       </div>
       )}
     </AppLayout>
