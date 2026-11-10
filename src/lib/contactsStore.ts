@@ -512,6 +512,11 @@ export async function mergeContacts(
     met_at: primaryRow.met_at ?? duplicateRow.met_at,
     introduced_by: primaryRow.introduced_by ?? duplicateRow.introduced_by,
     alt_emails: altEmails,
+    // Columns from later migrations ride along only when a row carries a
+    // value, so a database without them keeps merging.
+    ...(primaryRow.intended_layer ?? duplicateRow.intended_layer ?? null) !== null
+      ? { intended_layer: primaryRow.intended_layer ?? duplicateRow.intended_layer }
+      : {},
     updated_at: new Date().toISOString(),
   };
 
@@ -720,17 +725,20 @@ export async function setIntendedLayer(
   owner: string,
   email: string,
   layer: number | null
-): Promise<{ available: boolean }> {
-  const { error } = await getSupabaseAdmin()
+): Promise<{ available: boolean; found: boolean }> {
+  const { data, error } = await getSupabaseAdmin()
     .from('contacts')
     .update({ intended_layer: layer, updated_at: new Date().toISOString() })
     .eq('owner_email', owner)
-    .eq('email', email.toLowerCase());
+    .eq('email', email.toLowerCase())
+    .select('email');
   if (error) {
-    if (isMissingStore(error) || isMissingColumn(error)) return { available: false };
+    if (isMissingStore(error) || isMissingColumn(error)) return { available: false, found: false };
     throw new Error(`Failed to set orbit: ${error.message}`);
   }
-  return { available: true };
+  // A contact the store does not hold (cache-only, or an address folded into
+  // another row) matches nothing; say so instead of claiming it was saved.
+  return { available: true, found: (data ?? []).length > 0 };
 }
 
 /** Set/clear spam flags for a batch of emails. */
