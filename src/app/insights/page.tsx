@@ -11,8 +11,10 @@ import { persistContacts, useContacts, type ContactsData } from '@/hooks/useCont
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import type { RehearsalEntry } from '@/types';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { computeReconnectQueue } from '@/utils/reconnect';
+import { firstName } from '@/utils/draft';
+import type { NextStep } from '@/components/insights/NetworkScore';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ReconnectRail from '@/components/ReconnectRail';
 import IntroSuggestions from '@/components/IntroSuggestions';
@@ -67,6 +69,51 @@ export default function InsightsPage() {
   const handleSnoozed = () => refetch();
   const handleTouchLogged = () => refetch();
 
+  // The gaps lead somewhere: automated senders leave the queue and the score
+  // for good; people who never answer, or went quiet, are snoozed in one go.
+  const writeContacts = (next: typeof contacts) => {
+    queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], () =>
+      session?.user?.email ? persistContacts(session.user.email, next) : { contacts: next, lastUpdated: new Date().toISOString() }
+    );
+  };
+  const markAutomated = async (emails: string[]) => {
+    const set = new Set(emails.map(e => e.toLowerCase()));
+    try {
+      const response = await fetch('/api/contacts/spam', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails, isSpam: true }),
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      writeContacts(contacts.map(c => (set.has(c.email.toLowerCase()) ? { ...c, isSpam: true } : c)));
+      toast.success(`${emails.length} ${emails.length === 1 ? 'sender' : 'senders'} marked as automated`);
+    } catch {
+      toast.error('Could not mark them right now');
+    }
+  };
+  const snoozeAll = async (emails: string[], days: number) => {
+    const results = await Promise.allSettled(
+      emails.map(email =>
+        fetch('/api/contacts/reconnect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, days }),
+        }).then(response => {
+          if (!response.ok) throw new Error(String(response.status));
+          return email.toLowerCase();
+        })
+      )
+    );
+    const snoozed = new Set(results.flatMap(r => (r.status === 'fulfilled' ? [r.value] : [])));
+    if (snoozed.size > 0) {
+      const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+      writeContacts(contacts.map(c => (snoozed.has(c.email.toLowerCase()) ? { ...c, snoozedUntil: until } : c)));
+    }
+    if (snoozed.size === emails.length) toast.success(`Snoozed ${snoozed.size} for ${days} days`);
+    else if (snoozed.size > 0) toast(`Snoozed ${snoozed.size} of ${emails.length}; the rest did not save`);
+    else toast.error('Could not snooze them right now');
+  };
+
   // Group members count as priority alongside key-contact tagged contacts.
   const [groupMembers, setGroupMembers] = useState<string[]>([]);
   useEffect(() => {
@@ -82,6 +129,29 @@ export default function InsightsPage() {
     () => new Set<string>(groupMembers.map(m => m.toLowerCase())),
     [groupMembers]
   );
+
+  // The one thing the score points at: the people furthest past their rhythm, with the rail one click away.
+  const railRef = useRef<HTMLDivElement>(null);
+  const nextStep = useMemo<NextStep | undefined>(() => {
+    const queue = computeReconnectQueue(contacts, { limit: 3, priorityEmails });
+    if (queue.length > 0) {
+      const names = queue.map(c => firstName(c.contact.name, c.contact.email));
+      const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+      return {
+        text: `${list} ${names.length === 1 ? 'is' : 'are'} the furthest past ${names.length === 1 ? 'their' : 'their own'} rhythm. An opener is one tap away.`,
+        label: 'Open the rail',
+        onClick: () => railRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      };
+    }
+    if (contacts.length > 0 && priorityEmails.size === 0 && !contacts.some(c => (c.tags ?? []).some(t => t.toLowerCase() === 'key-contact'))) {
+      return {
+        text: 'Nobody is marked as mattering yet. Tag a few people key-contact or make a group, and the score measures them.',
+        label: 'Organize',
+        onClick: () => setCurrentView('organize'),
+      };
+    }
+    return contacts.length > 0 ? { text: 'Nothing is going cold right now.' } : undefined;
+  }, [contacts, priorityEmails]);
 
   const goingColdCount = useMemo(
     () => computeReconnectQueue(contacts, { limit: 50, priorityEmails }).length,
@@ -110,6 +180,7 @@ export default function InsightsPage() {
 
             <div className="space-y-8">
               <ErrorBoundary label="ReconnectRail">
+                <div ref={railRef} className="scroll-mt-6" />
                 <ReconnectRail
                   contacts={contacts}
                   onSnoozed={handleSnoozed}
@@ -145,6 +216,7 @@ export default function InsightsPage() {
                   priorityEmails={priorityEmails}
                   goingColdCount={goingColdCount}
                   onViewChange={setCurrentView}
+                  nextStep={nextStep}
                 />
               </ErrorBoundary>
 
@@ -155,6 +227,8 @@ export default function InsightsPage() {
                     <SmartInsights
                       contacts={contacts}
                       onGroupCreate={createGroupFromInsight}
+                      onMarkAutomated={markAutomated}
+                      onSnoozeAll={snoozeAll}
                     />
                   </div>
                 ) : (
