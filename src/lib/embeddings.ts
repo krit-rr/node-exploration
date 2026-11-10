@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { getOpenAI } from '@/lib/openai';
 
 /**
  * Must match the vector(1536) column size in supabase/migrations.
@@ -8,17 +8,6 @@ import OpenAI from 'openai';
 export const EMBEDDING_DIMENSIONS = 1536;
 
 const BATCH_SIZE = 100;
-
-let client: OpenAI | null = null;
-function getClient(): OpenAI {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is not set');
-  }
-  if (!client) {
-    client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  return client;
-}
 
 /**
  * Embed texts in input order. Throws on API failure so callers can surface
@@ -31,7 +20,7 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
 
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE);
-    const response = await getClient().embeddings.create({
+    const response = await getOpenAI().embeddings.create({
       model,
       input: batch,
       dimensions: EMBEDDING_DIMENSIONS,

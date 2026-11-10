@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useRef } from 'react';
 import { Contact, type ContactMemory } from '@/types';
 import { cadenceStatus, computeReconnectQueue, type ReconnectCandidate } from '@/utils/reconnect';
 import { safeFormatDate } from '@/utils/dates';
+import { memoryIsStale } from '@/utils/interactions';
 
 export type TouchChannel = 'email' | 'call' | 'meeting' | 'other';
 
@@ -22,12 +23,6 @@ interface Props {
    * read and no model call is made.
    */
   onMemoryLoaded?: (memories: Record<string, ContactMemory>) => void;
-}
-
-/** A memory is stale once there is mail newer than the last read. */
-function memoryIsStale(contact: Contact): boolean {
-  if (!contact.memory) return true;
-  return Boolean(contact.lastContacted && contact.memory.updatedAt < contact.lastContacted);
 }
 
 /** Why this card is here, against the pair's own rhythm or the user's. */

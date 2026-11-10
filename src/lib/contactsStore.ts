@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from './supabaseAdmin';
-import { Contact, ContactMemory } from '@/types';
+import { Contact, ContactMemory, OpenLoop } from '@/types';
 
 /**
  * Server-side contact repository (Supabase, service-role only).
@@ -102,14 +102,20 @@ function combineInteractions(interactions: Interaction[]): Interaction[] {
   return combined.slice(0, MAX_INTERACTIONS);
 }
 
-/** A stored memory, or undefined when the column is empty or malformed. */
+function isOpenLoop(value: unknown): value is OpenLoop {
+  if (!value || typeof value !== 'object') return false;
+  const loop = value as Partial<OpenLoop>;
+  return typeof loop.text === 'string' && (loop.who === 'you' || loop.who === 'them') && typeof loop.date === 'string';
+}
+
+/** A stored memory, or undefined when the column is empty or malformed; loops that do not fit the shape are dropped. */
 function asMemory(value: unknown): ContactMemory | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const memory = value as Partial<ContactMemory>;
   if (typeof memory.sourceHash !== 'string' || !Array.isArray(memory.openLoops)) return undefined;
   return {
     summary: typeof memory.summary === 'string' ? memory.summary : '',
-    openLoops: memory.openLoops,
+    openLoops: memory.openLoops.filter(isOpenLoop),
     sourceHash: memory.sourceHash,
     updatedAt: typeof memory.updatedAt === 'string' ? memory.updatedAt : '',
   };
