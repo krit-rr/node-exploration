@@ -1,6 +1,6 @@
 import type { Contact } from '@/types';
-import { AUTOMATED_ADDRESS } from '@/utils/reconnect';
-import { computeOrbit } from '@/utils/orbit';
+import { AUTOMATED_ADDRESS, assessCadence } from '@/utils/reconnect';
+import { closenessScore, hash, rankPriority, workDomain } from '@/utils/orbit';
 
 /**
  * Intros worth making. The most valuable thing a networker does for other
@@ -9,9 +9,9 @@ import { computeOrbit } from '@/utils/orbit';
  * through ties that are moderately weak rather than strongest (Rajkumar
  * et al.'s LinkedIn experiments). So a candidate pair is two people whose
  * profiles are alike (embedding similarity, computed in Postgres with no
- * model call) who have never been on an email together, are not
- * colleagues, and are both people the user is actually in touch with, so
- * the user can vouch for each to the other.
+ * model call) who are not colleagues, have not been on an email together
+ * as far as the record shows, and are both people the user has actually
+ * written to recently, so the user can vouch for each to the other.
  */
 
 export interface SimilarPair {
@@ -36,31 +36,23 @@ export interface IntroSuggestion {
   b: IntroPerson;
   similarity: number;
   score: number;
+  /** What makes the two alike: "Both in Fintech", or "Lumenworks and Acme, similar profiles". */
+  alike: string;
+  /** The longer of the two silences in days: the user has written to both within this. */
+  withinDays: number;
+  /** True when the mail record names the other people on each email, so the thread check ran rather than being assumed. */
+  threadsChecked: boolean;
+  /** The one-line reason, built from the fields above. */
   reason: string;
 }
 
-/** You can only vouch for someone you are in touch with. */
-const MAX_SILENCE_DAYS = 180;
+/** You can only vouch for someone you have written to recently. */
+export const MAX_SILENCE_DAYS = 180;
 /** Below this the two profiles are not alike enough to be worth a sentence. */
 const MIN_SIMILARITY = 0.35;
-const CONSUMER_DOMAINS = new Set([
-  'gmail.com', 'googlemail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'live.com',
-  'icloud.com', 'me.com', 'aol.com', 'proton.me', 'protonmail.com',
-]);
-
-function hash(text: string): number {
-  let h = 5381;
-  for (const ch of text) h = ((h << 5) + h + ch.charCodeAt(0)) | 0;
-  return h >>> 0;
-}
 
 export function pairKey(a: string, b: string): string {
   return hash([a.toLowerCase(), b.toLowerCase()].sort().join('|')).toString(36);
-}
-
-function workDomain(email: string): string | null {
-  const domain = email.split('@')[1]?.toLowerCase() ?? '';
-  return domain && !CONSUMER_DOMAINS.has(domain) ? domain : null;
 }
 
 function onAnEmailTogether(a: Contact, b: Contact): boolean {
@@ -77,38 +69,57 @@ function introducedEachOther(a: Contact, b: Contact): boolean {
   return (byA !== '' && byA === a.name.trim().toLowerCase()) || (byB !== '' && byB === b.name.trim().toLowerCase());
 }
 
+/** Colleagues: the same company, or the same work domain (checked separately: one of the two may have no company on record). */
+function colleagues(a: Contact, b: Contact): boolean {
+  const companyA = a.company?.trim().toLowerCase();
+  if (companyA && companyA === b.company?.trim().toLowerCase()) return true;
+  const domainA = workDomain(a.email);
+  return Boolean(domainA) && domainA === workDomain(b.email);
+}
+
 /** Everything that says these two already know each other, or are too close to need an intro. */
 export function alreadyConnected(a: Contact, b: Contact): boolean {
-  const companyA = a.company?.trim().toLowerCase();
-  const companyB = b.company?.trim().toLowerCase();
-  if (companyA && companyA === companyB) return true;
-  const domainA = workDomain(a.email);
-  if (domainA && domainA === workDomain(b.email)) return true;
-  return onAnEmailTogether(a, b) || introducedEachOther(a, b);
+  return colleagues(a, b) || onAnEmailTogether(a, b) || introducedEachOther(a, b);
+}
+
+/**
+ * True when any interaction on record names the other people on the email.
+ * Without that the "never on an email together" check cannot run, and the
+ * reason must not claim it did.
+ */
+export function participantsRecorded(contacts: Contact[]): boolean {
+  return contacts.some(c => (c.interactions ?? []).some(i => (i.participants?.length ?? 0) > 0));
 }
 
 function describe(contact: Contact): string {
   return contact.company?.trim() || contact.industry?.trim() || 'a similar profile';
 }
 
-function weeks(days: number): string {
-  return days < 14 ? `${days} days` : `${Math.round(days / 7)} weeks`;
+/** "the last day", "the last 9 days", "the last 3 weeks", "the last 4 months". */
+export function withinText(days: number): string {
+  if (days >= 60) return `the last ${Math.floor(days / 30)} months`;
+  if (days >= 14) return `the last ${Math.round(days / 7)} weeks`;
+  if (days >= 2) return `the last ${days} days`;
+  return 'the last day';
 }
 
-export function introReason(a: Contact, b: Contact, daysA: number, daysB: number): string {
+export function alikeText(a: Contact, b: Contact): string {
   const industryA = a.industry?.trim();
   const industryB = b.industry?.trim();
-  const alike = industryA && industryB && industryA.toLowerCase() === industryB.toLowerCase()
+  return industryA && industryB && industryA.toLowerCase() === industryB.toLowerCase()
     ? `Both in ${industryA}`
     : `${describe(a)} and ${describe(b)}, similar profiles`;
-  const recent = weeks(Math.max(daysA, daysB));
-  return `${alike}, never on an email together, and you have written to both in the last ${recent}.`;
+}
+
+export function introReason(alike: string, withinDays: number, threadsChecked: boolean): string {
+  const apart = threadsChecked ? 'never on an email together' : 'not colleagues';
+  return `${alike}, ${apart}, and you have written to both in ${withinText(withinDays)}.`;
 }
 
 export function suggestIntros(
   contacts: Contact[],
   pairs: SimilarPair[],
-  { limit = 5, now = Date.now() }: { limit?: number; now?: number } = {}
+  { limit = 5, now = Date.now(), priorityEmails }: { limit?: number; now?: number; priorityEmails?: Set<string> } = {}
 ): IntroSuggestion[] {
   const byEmail = new Map<string, Contact>();
   for (const contact of contacts) {
@@ -116,7 +127,8 @@ export function suggestIntros(
     if (contact.isSpam || AUTOMATED_ADDRESS.test(email)) continue;
     byEmail.set(email, contact);
   }
-  const orbit = new Map(computeOrbit(contacts, { now }).points.map(p => [p.email, p]));
+  const assessments = assessCadence(contacts, undefined, now);
+  const threadsChecked = participantsRecorded(contacts);
 
   const seen = new Set<string>();
   const suggestions: IntroSuggestion[] = [];
@@ -129,12 +141,16 @@ export function suggestIntros(
     seen.add(key);
     const a = byEmail.get(aEmail);
     const b = byEmail.get(bEmail);
-    const pa = orbit.get(aEmail);
-    const pb = orbit.get(bEmail);
-    if (!a || !b || !pa || !pb) continue;
-    if (pa.assessment.daysSince > MAX_SILENCE_DAYS || pb.assessment.daysSince > MAX_SILENCE_DAYS) continue;
+    const ta = assessments.get(aEmail);
+    const tb = assessments.get(bEmail);
+    if (!a || !b || !ta || !tb) continue;
+    // You can only vouch for people you have actually written to, and recently.
+    if (ta.neverTouched || tb.neverTouched) continue;
+    if (ta.daysSince > MAX_SILENCE_DAYS || tb.daysSince > MAX_SILENCE_DAYS) continue;
     if (alreadyConnected(a, b)) continue;
-    const score = pair.similarity * Math.sqrt(pa.closeness * pb.closeness);
+    const closeness = Math.sqrt(
+      closenessScore(ta, rankPriority(a, priorityEmails)) * closenessScore(tb, rankPriority(b, priorityEmails))
+    );
     const person = (c: Contact, days: number): IntroPerson => ({
       email: c.email.toLowerCase(),
       name: c.name || c.email,
@@ -142,13 +158,18 @@ export function suggestIntros(
       industry: c.industry?.trim() || undefined,
       daysSince: days,
     });
+    const alike = alikeText(a, b);
+    const withinDays = Math.max(ta.daysSince, tb.daysSince);
     suggestions.push({
       key,
-      a: person(a, pa.assessment.daysSince),
-      b: person(b, pb.assessment.daysSince),
+      a: person(a, ta.daysSince),
+      b: person(b, tb.daysSince),
       similarity: pair.similarity,
-      score,
-      reason: introReason(a, b, pa.assessment.daysSince, pb.assessment.daysSince),
+      score: pair.similarity * closeness,
+      alike,
+      withinDays,
+      threadsChecked,
+      reason: introReason(alike, withinDays, threadsChecked),
     });
   }
   return suggestions.sort((x, y) => y.score - x.score).slice(0, limit);

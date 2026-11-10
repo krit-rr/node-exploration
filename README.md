@@ -26,8 +26,8 @@ extension. This powers:
 - **Similar contacts**: nearest neighbors of any contact, with no model call
   (`GET /api/contacts/similar?email=a@b.com`)
 
-Setup: run `supabase/migrations/20261005_vector_search.sql` and `supabase/migrations/20261006_contacts.sql` in your Supabase
-SQL editor, and set `SUPABASE_SERVICE_ROLE_KEY` (see below). Embeddings sync
+Setup: run the files in `supabase/migrations/` in date order in your Supabase
+SQL editor (each is safe to run again), and set `SUPABASE_SERVICE_ROLE_KEY` (see below). Embeddings sync
 automatically (`POST /api/embeddings/sync`) whenever the contacts page loads
 fresh data; only changed contacts are re-embedded.
 
@@ -68,8 +68,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 # Server-only: bypasses RLS, never expose to the browser
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
-# Monday digest (optional): Resend sends it, the scheduler calls /api/digest/send
-# with CRON_SECRET as a bearer token (Vercel does this for the cron in vercel.json)
+# Monday digest (optional): Resend sends it, the scheduler calls GET or POST
+# /api/digest/send with CRON_SECRET as a bearer token (Vercel does this, with GET,
+# for the cron in vercel.json); a re-run inside the same week sends nothing twice
 RESEND_API_KEY=your-resend-key
 DIGEST_FROM=Node <digest@your-domain.com>
 CRON_SECRET=a-long-random-string

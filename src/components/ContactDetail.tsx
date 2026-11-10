@@ -1,4 +1,5 @@
 import { Contact, type ContactMemory } from '@/types';
+import { memoryIsStale } from '@/utils/interactions';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Dialog } from '@headlessui/react';
@@ -29,21 +30,42 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn, o
     customFields: contact.customFields || []
   });
   const [readingMemory, setReadingMemory] = useState(false);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
   const memoryRequested = useRef<string | null>(null);
 
   const readMemory = async (force: boolean) => {
     if (!onMemoryLoaded || readingMemory) return;
     setReadingMemory(true);
+    setMemoryError(null);
     try {
       const response = await fetch('/api/contacts/memory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ emails: [contact.email], force }),
       });
-      const body = response.ok ? await response.json() : null;
-      if (body?.memories && Object.keys(body.memories).length > 0) onMemoryLoaded(body.memories);
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        setMemoryError(
+          response.status === 429
+            ? 'Too many reads in the last minute. Try again shortly.'
+            : response.status === 503
+              ? 'No model is configured for reading emails.'
+              : 'Could not read your emails with this person right now.'
+        );
+        return;
+      }
+      const email = contact.email.toLowerCase();
+      if (body?.memories?.[email]) {
+        onMemoryLoaded(body.memories);
+      } else if (Array.isArray(body?.failed) && body.failed.includes(email)) {
+        setMemoryError('The read failed partway. Try again.');
+      } else if (body?.persisted === false) {
+        setMemoryError('Memory is not set up on this database yet.');
+      } else if (!contact.memory) {
+        setMemoryError('No subject lines or previews are stored for this person yet.');
+      }
     } catch {
-      // Memory is a nicety; the rest of the modal works without it.
+      setMemoryError('Could not read your emails with this person right now.');
     } finally {
       setReadingMemory(false);
     }
@@ -52,13 +74,11 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn, o
   // Read once per opened contact when nothing is stored or mail is newer than the last read.
   useEffect(() => {
     if (!onMemoryLoaded || memoryRequested.current === contact.email) return;
-    const stale = !contact.memory || Boolean(contact.lastContacted && contact.memory.updatedAt < contact.lastContacted);
-    const hasText = (contact.interactions ?? []).some(i => i.subject || i.snippet);
-    if (!stale || !hasText) return;
+    if (!memoryIsStale(contact)) return;
     memoryRequested.current = contact.email;
     readMemory(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contact.email, contact.memory, contact.lastContacted, onMemoryLoaded]);
+  }, [contact, onMemoryLoaded]);
   const [tagDraft, setTagDraft] = useState('');
   const [customFields, setCustomFields] = useState<CustomField[]>(
     contact.customFields || []
@@ -355,6 +375,7 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn, o
                 ) : (
                   <p className="text-gray-500">{readingMemory ? 'Reading the subject lines and previews of your emails with this person…' : 'Nothing read yet.'}</p>
                 )}
+                {memoryError && <p className="text-xs text-red-600">{memoryError}</p>}
               </div>
             </div>
           )}

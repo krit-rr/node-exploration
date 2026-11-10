@@ -1,25 +1,20 @@
 'use client';
 
 import AppLayout from '@/components/Layout/AppLayout';
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
 import toast from 'react-hot-toast';
 import OrbitMap from '@/components/OrbitMap';
 import { persistContacts, useContacts, type ContactsData } from '@/hooks/useContacts';
 import { computeOrbit, contactsAsOf, LAYER_NAMES } from '@/utils/orbit';
+import { cadenceStatus } from '@/utils/reconnect';
+import { MAX_INTERACTIONS } from '@/utils/interactions';
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_WEEKS_BACK = 52;
 
 type Intent = 1 | 2 | 3 | 4 | null;
-
-function since(days: number): string {
-  if (days >= 365) return `${Math.floor(days / 365)}y`;
-  if (days >= 60) return `${Math.floor(days / 30)}mo`;
-  if (days >= 14) return `${Math.round(days / 7)}w`;
-  return `${days}d`;
-}
 
 const INTENT_OPTIONS: { layer: Intent; label: string }[] = [
   { layer: 1, label: 'Closest 5' },
@@ -55,26 +50,35 @@ export default function OrbitPage() {
   const priorityEmails = useMemo(() => new Set(groupMembers.map(m => m.toLowerCase())), [groupMembers]);
 
   // Replay: scrub up to a year back and the map shows where everyone sat then.
+  // The layout follows the slider a beat behind, so the thumb never waits for a recompute.
   const [weeksAgo, setWeeksAgo] = useState(0);
+  const shownWeeksAgo = useDeferredValue(weeksAgo);
+  const at = useMemo(() => (shownWeeksAgo === 0 ? null : Date.now() - shownWeeksAgo * WEEK_MS), [shownWeeksAgo]);
+  const replay = useMemo(() => (at === null ? null : contactsAsOf(contacts, at)), [contacts, at]);
   const layout = useMemo(() => {
-    if (weeksAgo === 0) return computeOrbit(contacts, { priorityEmails });
-    const at = Date.now() - weeksAgo * WEEK_MS;
-    return computeOrbit(contactsAsOf(contacts, at), { priorityEmails, now: at });
-  }, [contacts, priorityEmails, weeksAgo]);
-  const replaying = weeksAgo > 0;
+    if (!replay || at === null) return computeOrbit(contacts, { priorityEmails });
+    return computeOrbit(replay.contacts, { now: at, replay: true });
+  }, [contacts, priorityEmails, replay, at]);
+  const replaying = weeksAgo > 0 || replay !== null;
+  const thenLabel = `${shownWeeksAgo} week${shownWeeksAgo === 1 ? '' : 's'} ago`;
   const [selected, setSelected] = useState<string | null>(null);
   const point = layout.points.find(p => p.email === selected) ?? null;
   const goingCold = layout.points.filter(p => p.goingCold).length;
 
-  const setIntent = async (email: string, layer: Intent) => {
-    // Optimistic: the map and the other pages see the new intent at once.
-    const updated = contacts.map(c =>
-      c.email.toLowerCase() === email ? { ...c, intendedLayer: layer ?? undefined } : c
-    );
+  const applyContacts = (next: typeof contacts) => {
     queryClient.setQueryData<ContactsData>(['sentRecipients', userEmail], old =>
-      old ? { ...old, contacts: updated } : old
+      old ? { ...old, contacts: next } : old
     );
-    if (userEmail) persistContacts(userEmail, updated);
+    if (userEmail) persistContacts(userEmail, next);
+  };
+
+  const setIntent = async (email: string, layer: Intent) => {
+    // Optimistic: the map and the other pages see the new intent at once,
+    // and the previous list comes back if the server says no.
+    const previous = contacts;
+    applyContacts(contacts.map(c =>
+      c.email.toLowerCase() === email ? { ...c, intendedLayer: layer ?? undefined } : c
+    ));
     try {
       const response = await fetch('/api/contacts/orbit', {
         method: 'POST',
@@ -84,12 +88,15 @@ export default function OrbitPage() {
       if (!response.ok) throw new Error(String(response.status));
       const body = await response.json();
       if (!body.persisted) {
-        toast('Kept for this session only: run the orbit migration to save it', {
+        toast(body.reason === 'not-found'
+          ? 'Kept for this session only: this person is not in your synced list yet'
+          : 'Kept for this session only: run the orbit migration to save it', {
           style: { backgroundColor: '#F4F4FF', color: '#1E1E3F' },
         });
       }
     } catch {
-      toast.error('Could not save where you put them');
+      applyContacts(previous);
+      toast.error('Could not save where you put them; the dot is back where it was');
     }
   };
 
@@ -135,35 +142,42 @@ export default function OrbitPage() {
               </div>
               <p className="px-2 pt-1 text-[11px] text-gray-400">
                 {replaying
-                  ? 'Replaying where everyone sat then. Drag works in the present.'
+                  ? 'Replaying where everyone sat then, by activity alone. Drag works in the present.'
                   : 'Slide left to replay the last year of drift.'}
               </p>
+              {replay && replay.beyondRecord > 0 && (
+                <p className="px-2 pt-1 text-[11px] text-gray-400">
+                  {replay.beyondRecord === 1 ? '1 person has' : `${replay.beyondRecord} people have`} more history than Node keeps (the newest {MAX_INTERACTIONS} messages), so this far back {replay.beyondRecord === 1 ? 'they are' : 'they are'} left out rather than shown as strangers.
+                </p>
+              )}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2 pt-2 text-xs text-gray-500">
                 <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#D97706]" /> going cold</span>
-                <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#4B4BA6]/70 ring-1 ring-[#1E1E3F]" /> priority</span>
-                <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full border border-[#1E1E3F]/60" /> where you want them</span>
+                {!replaying && (
+                  <>
+                    <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#4B4BA6]/70 ring-1 ring-[#1E1E3F]" /> priority</span>
+                    <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full border border-[#1E1E3F]/60" /> where you want them</span>
+                  </>
+                )}
               </div>
             </div>
 
             <aside className="bg-white rounded-xl border border-gray-200 p-4 text-sm">
               {point ? (
                 <div className="flex flex-col gap-3">
+                  {replaying && <p className="text-xs font-medium text-[#1E1E3F]">As of {thenLabel}</p>}
                   <div>
                     <p className="font-semibold text-[#1E1E3F] truncate">{point.contact.name}</p>
                     <p className="text-xs text-gray-500 truncate">{point.contact.company || point.email}</p>
                   </div>
+                  <p className="text-xs text-gray-500">{cadenceStatus(point.assessment, { then: replaying })}</p>
                   <p className="text-xs text-gray-500">
-                    {point.assessment.neverTouched
-                      ? <>Added {since(point.assessment.daysSince)} ago, no touch yet</>
-                      : point.assessment.cadence.source === 'pair'
-                        ? <>Usually every {since(Math.round(point.assessment.cadence.typicalDays))}, quiet for {since(point.assessment.daysSince)}</>
-                        : <>Last touch {since(point.assessment.daysSince)} ago</>}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Sits in your {LAYER_NAMES[point.layer - 1]} by activity
+                    {replaying ? 'Sat in your' : 'Sits in your'} {LAYER_NAMES[point.layer - 1]} by activity{replaying ? ' then' : ''}
                     {point.goingCold ? <span className="ml-1 text-[#B45309]">· going cold</span> : null}
                     {point.priority ? <span className="ml-1 text-[#1E1E3F]">· priority</span> : null}
                   </p>
+                  {replaying ? (
+                    <p className="text-[11px] text-gray-400">Where you want them is a mark you make today. Slide back to now to change it.</p>
+                  ) : (
                   <div>
                     <p className="text-xs font-medium text-[#1E1E3F] mb-1.5">Where you want them</p>
                     <div className="flex flex-wrap gap-1.5">
@@ -172,7 +186,6 @@ export default function OrbitPage() {
                         return (
                           <button
                             key={String(option.layer)}
-                            disabled={replaying}
                             onClick={() => setIntent(point.email, option.layer)}
                             className={`text-xs px-2 py-1 rounded-md border transition-colors disabled:opacity-50 ${
                               current
@@ -187,6 +200,7 @@ export default function OrbitPage() {
                     </div>
                     <p className="text-[11px] text-gray-400 mt-1.5">The closest two rings count as priority in Going cold.</p>
                   </div>
+                  )}
                   <a
                     href={`mailto:${point.email}`}
                     className="self-start text-xs font-medium px-2.5 py-1 rounded-md bg-[#1E1E3F] text-white hover:bg-[#2D2D5F] transition-colors"
@@ -196,7 +210,7 @@ export default function OrbitPage() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-3 text-gray-600">
-                  <p className="font-semibold text-[#1E1E3F]">Your network, by closeness</p>
+                  <p className="font-semibold text-[#1E1E3F]">{replaying ? `Your network ${thenLabel}` : 'Your network, by closeness'}</p>
                   <ul className="text-xs text-gray-500 space-y-1">
                     {LAYER_NAMES.map((name, i) => (
                       <li key={name} className="flex justify-between">
@@ -207,11 +221,15 @@ export default function OrbitPage() {
                   </ul>
                   <p className="text-xs text-gray-500">
                     {goingCold === 0
-                      ? 'Nobody is going cold right now.'
-                      : `${goingCold} ${goingCold === 1 ? 'person is' : 'people are'} going cold against their own rhythm.`}
+                      ? (replaying ? `Nobody was going cold ${thenLabel}.` : 'Nobody is going cold right now.')
+                      : replaying
+                        ? `${goingCold} ${goingCold === 1 ? 'person was' : 'people were'} going cold against their own rhythm ${thenLabel}.`
+                        : `${goingCold} ${goingCold === 1 ? 'person is' : 'people are'} going cold against their own rhythm.`}
                   </p>
                   <p className="text-xs text-gray-500">
-                    Click a dot for details. Drag it to a ring to say where that person should be; the hollow marker remembers it.
+                    {replaying
+                      ? 'Click a dot for details. Slide back to now to drag.'
+                      : 'Click a dot for details. Drag it to a ring to say where that person should be; the hollow marker remembers it.'}
                   </p>
                 </div>
               )}

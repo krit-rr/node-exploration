@@ -1,5 +1,6 @@
 import type { Contact } from '@/types';
-import { assessCadence, isGoingCold, isPriorityContact, isSnoozed, type CadenceAssessment } from '@/utils/reconnect';
+import { assessCadence, isGoingCold, isPriorityContact, isSnoozed, lastTouchTime, PRIORITY_TAG, type CadenceAssessment } from '@/utils/reconnect';
+import { MAX_INTERACTIONS } from '@/utils/interactions';
 
 /**
  * The orbit map: every contact as a point around the user, distance being
@@ -22,12 +23,17 @@ export const LAYER_NAMES = ['closest 5', '15', '50', '150', 'beyond 150'] as con
 export const RING_EDGE = [0.22, 0.45, 0.7, 0.95, 1.08] as const;
 const RING_INNER = 0.06;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const RECENCY_HALF_LIFE_DAYS = 90;
-const CONSUMER_DOMAINS = new Set([
+export const CONSUMER_DOMAINS = new Set([
   'gmail.com', 'googlemail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'live.com',
   'icloud.com', 'me.com', 'aol.com', 'proton.me', 'protonmail.com',
 ]);
+
+/** The domain of a work address, or null for a consumer mailbox. */
+export function workDomain(email: string): string | null {
+  const domain = email.split('@')[1]?.toLowerCase() ?? '';
+  return domain && !CONSUMER_DOMAINS.has(domain) ? domain : null;
+}
 
 export interface OrbitPoint {
   contact: Contact;
@@ -54,7 +60,8 @@ export interface OrbitLayout {
   total: number;
 }
 
-function hash(text: string): number {
+/** A small stable hash for angles and keys (djb2). */
+export function hash(text: string): number {
   let h = 5381;
   for (const ch of text) h = ((h << 5) + h + ch.charCodeAt(0)) | 0;
   return h >>> 0;
@@ -64,8 +71,8 @@ function hash(text: string): number {
 export function clusterKey(contact: Contact): string {
   const company = contact.company?.trim().toLowerCase();
   if (company) return `company:${company}`;
-  const domain = contact.email.split('@')[1]?.toLowerCase() ?? '';
-  if (domain && !CONSUMER_DOMAINS.has(domain)) return `domain:${domain}`;
+  const domain = workDomain(contact.email);
+  if (domain) return `domain:${domain}`;
   return `person:${contact.email.toLowerCase()}`;
 }
 
@@ -74,19 +81,22 @@ export function clusterKey(contact: Contact): string {
  * full marks) and depth of history, with a nudge for people the user
  * marked out. A heuristic, deliberately simple; the model replaces it.
  */
-export function closenessScore(contact: Contact, assessment: CadenceAssessment, priority: boolean, now: number): number {
-  const recency = Math.pow(0.5, Math.max(0, assessment.daysSince) / RECENCY_HALF_LIFE_DAYS);
-  const dates = contact.interactions?.length
-    ? contact.interactions.map(i => i.date)
-    : contact.sentDates ?? [];
-  let lastYear = 0;
-  for (const date of dates) {
-    const t = new Date(date).getTime();
-    if (!isNaN(t) && now - t <= 365 * DAY_MS) lastYear++;
-  }
-  const frequency = Math.min(1, lastYear / 12);
-  const depth = Math.min(1, Math.log(1 + dates.length) / Math.log(21));
+export function closenessScore(assessment: CadenceAssessment, priority: boolean): number {
+  // Someone Node knows about but has never touched has no recency, whatever their row's age.
+  const recency = assessment.neverTouched ? 0 : Math.pow(0.5, Math.max(0, assessment.daysSince) / RECENCY_HALF_LIFE_DAYS);
+  const frequency = Math.min(1, assessment.touchesLastYear / 12);
+  const depth = Math.min(1, Math.log(1 + assessment.touchCount) / Math.log(21));
   return Math.min(1, 0.5 * recency + 0.3 * frequency + 0.2 * depth + (priority ? 0.1 : 0));
+}
+
+/**
+ * Priority as the rank sees it: the key-contact tag and group membership
+ * only. Orbit intent is deliberately left out, so dragging someone inward
+ * never moves the dot that shows where activity puts them.
+ */
+export function rankPriority(contact: Contact, priorityEmails?: Set<string>): boolean {
+  if ((contact.tags ?? []).some(t => t.toLowerCase() === PRIORITY_TAG)) return true;
+  return Boolean(priorityEmails?.has(contact.email.toLowerCase()));
 }
 
 /** The stored intent, when it is a valid ring. */
@@ -118,45 +128,92 @@ export function ringDistance(layer: 1 | 2 | 3 | 4): number {
   return (inner + RING_EDGE[layer - 1]) / 2;
 }
 
+type Timeline = {
+  touches: { t: number; index: number }[];
+  sent: { t: number; index: number }[];
+  /** The oldest touch on record, or Infinity when there is none. */
+  oldest: number;
+  /** True when the row holds as many interactions as it can: there were more, older, that Node no longer has. */
+  truncated: boolean;
+};
+
+const timelines = new WeakMap<Contact, Timeline>();
+
+/** Dates parsed once per contact object; a drag of the slider asks fifty times. */
+function timelineOf(contact: Contact): Timeline {
+  const cached = timelines.get(contact);
+  if (cached) return cached;
+  const touches = (contact.interactions ?? [])
+    .map((i, index) => ({ t: new Date(i.date).getTime(), index }))
+    .filter(x => !Number.isNaN(x.t));
+  const sent = (contact.sentDates ?? [])
+    .map((d, index) => ({ t: new Date(d).getTime(), index }))
+    .filter(x => !Number.isNaN(x.t));
+  const timeline: Timeline = {
+    touches,
+    sent,
+    oldest: Math.min(...touches.map(x => x.t), ...sent.map(x => x.t)),
+    truncated: (contact.interactions?.length ?? 0) >= MAX_INTERACTIONS,
+  };
+  timelines.set(contact, timeline);
+  return timeline;
+}
+
+export interface Replay {
+  contacts: Contact[];
+  /**
+   * People whose stored history is full and starts after the moment: Node
+   * cannot say where they sat then, so they are left out and counted rather
+   * than drawn as strangers. These are usually the closest people.
+   */
+  beyondRecord: number;
+}
+
 /**
  * The contacts as they stood at `at`: only the touches up to then, the
- * last touch recomputed from them, and nobody Node had not met yet. With
- * `computeOrbit(contactsAsOf(contacts, at), { now: at })` the map replays
- * where everyone sat at that moment, so a year of drift can be scrubbed.
+ * last touch recomputed from them, nobody Node had not met yet, and no
+ * present-day intent or snooze. With `computeOrbit(replay.contacts, { now:
+ * at, replay: true })` the map replays where everyone sat at that moment,
+ * so a year of drift can be scrubbed.
  */
-export function contactsAsOf(contacts: Contact[], at: number): Contact[] {
+export function contactsAsOf(contacts: Contact[], at: number): Replay {
   const projected: Contact[] = [];
+  let beyondRecord = 0;
   for (const contact of contacts) {
-    const interactions = (contact.interactions ?? []).filter(i => {
-      const t = new Date(i.date).getTime();
-      return !isNaN(t) && t <= at;
-    });
-    const sentDates = (contact.sentDates ?? []).filter(d => {
-      const t = new Date(d).getTime();
-      return !isNaN(t) && t <= at;
-    });
-    const times = [...interactions.map(i => new Date(i.date).getTime()), ...sentDates.map(d => new Date(d).getTime())];
-    if (times.length === 0) {
+    const line = timelineOf(contact);
+    if (line.truncated && line.oldest > at) {
+      beyondRecord += 1;
+      continue;
+    }
+    const touches = line.touches.filter(x => x.t <= at);
+    const sent = line.sent.filter(x => x.t <= at);
+    let last = Math.max(-Infinity, ...touches.map(x => x.t), ...sent.map(x => x.t));
+    if (last === -Infinity && line.touches.length === 0 && line.sent.length === 0) {
+      // The only evidence is the date itself (an import with no message list): keep it when it is before the moment.
+      const known = lastTouchTime(contact);
+      if (known && !known.neverTouched && known.time <= at) last = known.time;
+    }
+    if (last === -Infinity) {
       // No touch yet at that time: present only if Node already knew them.
       const created = contact.createdAt ? new Date(contact.createdAt).getTime() : NaN;
-      if (isNaN(created) || created > at) continue;
-      projected.push({ ...contact, interactions: [], sentDates: [], lastContacted: '', snoozedUntil: undefined });
-      continue;
+      if (Number.isNaN(created) || created > at) continue;
     }
     projected.push({
       ...contact,
-      interactions,
-      sentDates,
-      lastContacted: new Date(Math.max(...times)).toISOString(),
+      interactions: touches.map(x => (contact.interactions ?? [])[x.index]),
+      sentDates: sent.map(x => (contact.sentDates ?? [])[x.index]),
+      lastContacted: last === -Infinity ? '' : new Date(last).toISOString(),
       snoozedUntil: undefined,
+      // Where you want someone is a present-day mark; the replay shows activity only.
+      intendedLayer: undefined,
     });
   }
-  return projected;
+  return { contacts: projected, beyondRecord };
 }
 
 export function computeOrbit(
   contacts: Contact[],
-  { priorityEmails, now = Date.now() }: { priorityEmails?: Set<string>; now?: number } = {}
+  { priorityEmails, now = Date.now(), replay = false }: { priorityEmails?: Set<string>; now?: number; replay?: boolean } = {}
 ): OrbitLayout {
   const assessments = assessCadence(contacts, undefined, now);
   const scored: { contact: Contact; email: string; assessment: CadenceAssessment; priority: boolean; closeness: number }[] = [];
@@ -164,8 +221,9 @@ export function computeOrbit(
     const email = contact.email.toLowerCase();
     const assessment = assessments.get(email);
     if (!assessment) continue;
-    const priority = isPriorityContact(contact, priorityEmails);
-    scored.push({ contact, email, assessment, priority, closeness: closenessScore(contact, assessment, priority, now) });
+    // Tags and groups are today's marks too: a replayed layout ranks on activity alone.
+    const priority = !replay && isPriorityContact(contact, priorityEmails);
+    scored.push({ contact, email, assessment, priority, closeness: closenessScore(assessment, !replay && rankPriority(contact, priorityEmails)) });
   }
   scored.sort((a, b) => b.closeness - a.closeness || a.email.localeCompare(b.email));
 

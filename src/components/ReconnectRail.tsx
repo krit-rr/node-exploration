@@ -3,9 +3,11 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { Contact, type ContactMemory } from '@/types';
-import { composeLabel, composeUrl } from '@/utils/compose';
-import { computeReconnectQueue, type ReconnectCandidate } from '@/utils/reconnect';
+import { composeLabel, composeOpensInBrowser, composeUrl } from '@/utils/compose';
+import { draftFromTemplate } from '@/utils/draft';
+import { cadenceStatus, computeReconnectQueue, type ReconnectCandidate } from '@/utils/reconnect';
 import { safeFormatDate } from '@/utils/dates';
+import { memoryIsStale } from '@/utils/interactions';
 
 export type TouchChannel = 'email' | 'call' | 'meeting' | 'other';
 
@@ -15,7 +17,7 @@ interface Props {
   onSnoozed: (email: string, snoozedUntil: string) => void;
   /** Apply a logged touch to local state; the rail fires the API call itself. */
   onTouchLogged: (email: string, channel: TouchChannel) => void;
-  /** Extra priority members (e.g. everyone in a group); tagged contacts are always priority. */
+  /** Extra priority members (everyone in a group); the key-contact tag is read from the contact itself. */
   priorityEmails?: Set<string>;
   compact?: boolean;
   /**
@@ -26,27 +28,23 @@ interface Props {
   onMemoryLoaded?: (memories: Record<string, ContactMemory>) => void;
 }
 
-type Draft = { email: string; subject: string; body: string; source: 'model' | 'template' };
+type Draft = { email: string; subject: string; body: string; note: string };
 
-/** A memory is stale once there is mail newer than the last read. */
-function memoryIsStale(contact: Contact): boolean {
-  if (!contact.memory) return true;
-  return Boolean(contact.lastContacted && contact.memory.updatedAt < contact.lastContacted);
-}
-
-function since(days: number): string {
-  if (days >= 365) return `${Math.floor(days / 365)}y`;
-  if (days >= 60) return `${Math.floor(days / 30)}mo`;
-  if (days >= 14) return `${Math.round(days / 7)}w`;
-  return `${days}d`;
-}
+/** The footer under a draft says where it came from, and only what is true. */
+const DRAFT_NOTE = {
+  model: 'Written from your notes and emails. Edit before sending.',
+  'no-model': 'Assembled from your notes, no model configured. Edit before sending.',
+  'model-failed': 'Assembled from your notes. The model did not answer this time. Edit before sending.',
+  local: 'Assembled from your notes. Edit before sending.',
+  limited: 'Too many drafts in the last minute, so this one is assembled from your notes. Edit before sending.',
+} as const;
 
 /** Why this card is here, against the pair's own rhythm or the user's. */
 function rhythmTitle(candidate: ReconnectCandidate): string {
   const pct = Math.round(candidate.overdue * 100);
   return candidate.cadence.source === 'pair'
-    ? `${pct}% past this relationship's own rhythm, learned from ${candidate.cadence.gaps} past gaps`
-    : `${pct}% past your typical gap; too little history with this person to know their own rhythm yet`;
+    ? `A ${pct}% chance this silence is already past this relationship's usual gap, learned from ${candidate.cadence.gaps} past conversations`
+    : `A ${pct}% chance this silence is already past your usual gap; too little history with this person to know their own rhythm yet`;
 }
 
 const CHANNELS: { key: TouchChannel; label: string }[] = [
@@ -102,6 +100,19 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
 
   // The hardest step is the first sentence: ask for a draft, let the user
   // edit it on the card, then open it in their own mail client.
+  // The same template the server uses, from what the card already knows,
+  // for when the server cannot answer: a card always ends in an email.
+  const localDraft = (candidate: ReconnectCandidate, note: string): Draft => {
+    const draft = draftFromTemplate({
+      contact: candidate.contact,
+      userName: session?.user?.name ?? '',
+      daysSince: candidate.daysSince,
+      neverTouched: candidate.neverTouched,
+      typicalDays: candidate.cadence.source === 'pair' ? candidate.cadence.typicalDays : undefined,
+    });
+    return { email: candidate.contact.email, subject: draft.subject, body: draft.body, note };
+  };
+
   const requestDraft = async (candidate: ReconnectCandidate) => {
     const email = candidate.contact.email;
     if (drafting) return;
@@ -113,13 +124,19 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
+      if (response.status === 429) {
+        setDraft(localDraft(candidate, DRAFT_NOTE.limited));
+        return;
+      }
       if (!response.ok) throw new Error(String(response.status));
       const body = await response.json();
-      setDraft({ email, subject: String(body.subject ?? ''), body: String(body.body ?? ''), source: body.source === 'model' ? 'model' : 'template' });
+      if (typeof body?.body !== 'string' || !body.body) throw new Error('Empty draft');
+      const note = body.source === 'model'
+        ? DRAFT_NOTE.model
+        : body.reason === 'model-failed' ? DRAFT_NOTE['model-failed'] : DRAFT_NOTE['no-model'];
+      setDraft({ email, subject: String(body.subject ?? ''), body: body.body, note });
     } catch {
-      setDraft({ email, subject: 'Catching up', body: `Hi ${candidate.contact.name.split(' ')[0]},
-
-`, source: 'template' });
+      setDraft(localDraft(candidate, DRAFT_NOTE.local));
     } finally {
       setDrafting(null);
     }
@@ -187,11 +204,7 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
                 </p>
               </div>
               <p className="text-xs text-gray-400" title={rhythmTitle(candidate)}>
-                {candidate.neverTouched
-                  ? <>Added {since(candidate.daysSince)} ago, no touch yet</>
-                  : candidate.cadence.source === 'pair'
-                    ? <>Usually every {since(Math.round(candidate.cadence.typicalDays))}, quiet for {since(candidate.daysSince)}</>
-                    : <>Last touch {since(candidate.daysSince)} ago</>}
+                {cadenceStatus(candidate)}
                 {candidate.lastSubject ? <> &middot; <span className="italic">&ldquo;{candidate.lastSubject}&rdquo;</span></> : null}
               </p>
               {candidate.contact.metAt && (
@@ -221,15 +234,11 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
                     rows={6}
                     className="text-xs px-2 py-1 rounded-md border border-gray-200 resize-y focus:outline-none focus:ring-2 focus:ring-[#1E1E3F]/20"
                   />
-                  <p className="text-[11px] text-gray-400">
-                    {draft.source === 'model'
-                      ? 'Written from your notes and emails. Edit before sending.'
-                      : 'Assembled from your notes, no model configured. Edit before sending.'}
-                  </p>
+                  <p className="text-[11px] text-gray-400">{draft.note}</p>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <a
                       href={composeUrl(provider, email, draft.subject, draft.body)}
-                      target="_blank"
+                      target={composeOpensInBrowser(provider) ? '_blank' : undefined}
                       rel="noreferrer"
                       className="text-xs font-medium px-2.5 py-1 rounded-md bg-[#1E1E3F] text-white hover:bg-[#2D2D5F] transition-colors"
                     >

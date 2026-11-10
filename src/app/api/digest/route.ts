@@ -8,8 +8,9 @@ import { getDigestSubscription, setDigestSubscription } from '@/lib/digestStore'
 import { rateLimit } from '@/lib/rateLimit';
 
 /**
- * GET /api/digest: the signed-in user's digest as it would be sent today,
- * plus whether they are subscribed. `?format=html` renders it.
+ * GET /api/digest: whether the signed-in user is subscribed and whether
+ * sending is configured. `?format=html` renders the digest as it would be
+ * sent today, from the stored contacts (the only ones a scheduler can see).
  * PUT /api/digest { enabled }: opt in to, or out of, the Monday email.
  */
 export async function GET(request: Request) {
@@ -25,29 +26,29 @@ export async function GET(request: Request) {
   }
 
   try {
-    const [stored, groups, subscription] = await Promise.all([
-      listContacts(owner),
-      listGroups(owner),
-      getDigestSubscription(owner),
-    ]);
-    const priorityEmails = new Set(groups.groups.flatMap((g) => g.members.map((m) => m.toLowerCase())));
-    const digest = buildDigest({
-      contacts: stored.contacts,
-      priorityEmails,
-      userName: session.user.name,
-      appUrl: process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL,
-    });
-
     const { searchParams } = new URL(request.url);
     if (searchParams.get('format') === 'html') {
+      const [stored, groups] = await Promise.all([listContacts(owner), listGroups(owner)]);
+      if (!stored.available) {
+        return new Response('The digest is built from stored contacts; the contacts table is not set up yet.', {
+          status: 503,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'private, no-store' },
+        });
+      }
+      const priorityEmails = new Set(groups.groups.flatMap((g) => g.members.map((m) => m.toLowerCase())));
+      const digest = buildDigest({
+        contacts: stored.contacts,
+        priorityEmails,
+        userName: session.user.name,
+        appUrl: process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL,
+      });
       return new Response(digest.html, {
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'private, no-store' },
       });
     }
+
+    const subscription = await getDigestSubscription(owner);
     const response = NextResponse.json({
-      subject: digest.subject,
-      text: digest.text,
-      count: digest.count,
       subscribed: subscription.enabled,
       persisted: subscription.available,
       configured: Boolean(process.env.RESEND_API_KEY && process.env.DIGEST_FROM),
@@ -55,8 +56,8 @@ export async function GET(request: Request) {
     response.headers.set('Cache-Control', 'private, no-store');
     return response;
   } catch (error) {
-    console.error('Digest preview failed:', error);
-    return NextResponse.json({ error: 'Failed to build the digest' }, { status: 500 });
+    console.error('Digest read failed:', error);
+    return NextResponse.json({ error: 'Failed to read the digest setting' }, { status: 500 });
   }
 }
 
@@ -66,6 +67,15 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   const owner = session.user.email.toLowerCase();
+
+  const limited = rateLimit(`digest-write:${owner}`, { limit: 30, windowMs: 60_000 });
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: 'Too many requests, slow down' },
+      { status: 429, headers: { 'Retry-After': String(limited.retryAfterSeconds) } }
+    );
+  }
+
   try {
     const { enabled } = await request.json();
     if (typeof enabled !== 'boolean') {

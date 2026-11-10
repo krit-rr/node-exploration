@@ -32,23 +32,37 @@ export async function setDigestSubscription(
   return { available: true };
 }
 
-/** Everyone who opted in; the send route mails exactly these. */
-export async function listDigestSubscribers(): Promise<{ available: boolean; owners: string[] }> {
-  const { data, error } = await getSupabaseAdmin()
-    .from('digest_subscribers')
-    .select('owner_email')
-    .eq('enabled', true);
-  if (error) {
-    if (isMissingStore(error)) return { available: false, owners: [] };
-    throw new Error(`Failed to list digest subscribers: ${error.message}`);
-  }
-  return { available: true, owners: ((data ?? []) as { owner_email: string }[]).map((r) => r.owner_email) };
+export interface DigestSubscriber {
+  owner: string;
+  /** When the last digest went out, so a re-run in the same week sends nothing twice. */
+  lastSentAt: string | null;
 }
 
+/** Everyone who opted in; the send route mails exactly these. */
+export async function listDigestSubscribers(): Promise<{ available: boolean; subscribers: DigestSubscriber[] }> {
+  const { data, error } = await getSupabaseAdmin()
+    .from('digest_subscribers')
+    .select('owner_email, last_sent_at')
+    .eq('enabled', true);
+  if (error) {
+    if (isMissingStore(error)) return { available: false, subscribers: [] };
+    throw new Error(`Failed to list digest subscribers: ${error.message}`);
+  }
+  return {
+    available: true,
+    subscribers: ((data ?? []) as { owner_email: string; last_sent_at: string | null }[]).map((r) => ({
+      owner: r.owner_email,
+      lastSentAt: r.last_sent_at ?? null,
+    })),
+  };
+}
+
+/** Record the send. Throws when the row could not be updated, so the caller can say so. */
 export async function markDigestSent(owner: string): Promise<void> {
   const now = new Date().toISOString();
-  await getSupabaseAdmin()
+  const { error } = await getSupabaseAdmin()
     .from('digest_subscribers')
     .update({ last_sent_at: now, updated_at: now })
     .eq('owner_email', owner);
+  if (error) throw new Error(`Failed to record the digest send: ${error.message}`);
 }

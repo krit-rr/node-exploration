@@ -49,7 +49,7 @@ export default function OrbitMap({ layout, selected, onSelect, onIntent, readOnl
 
   const startDrag = (point: OrbitPoint) => (event: ReactPointerEvent<SVGCircleElement>) => {
     const svg = svgRef.current;
-    if (!svg) return;
+    if (!svg || readOnly) return;
     event.preventDefault();
     const p = toSvg(svg, event.clientX, event.clientY);
     svg.setPointerCapture(event.pointerId);
@@ -57,9 +57,9 @@ export default function OrbitMap({ layout, selected, onSelect, onIntent, readOnl
   };
 
   const move = (event: ReactPointerEvent<SVGSVGElement>) => {
-    if (!drag || !svgRef.current) return;
+    if (readOnly || !drag || !svgRef.current) return;
     const p = toSvg(svgRef.current, event.clientX, event.clientY);
-    const moved = !readOnly && (drag.moved || Math.hypot(p.x - drag.startX, p.y - drag.startY) > 4);
+    const moved = drag.moved || Math.hypot(p.x - drag.startX, p.y - drag.startY) > 4;
     setDrag({ ...drag, x: p.x, y: p.y, moved });
   };
 
@@ -79,10 +79,10 @@ export default function OrbitMap({ layout, selected, onSelect, onIntent, readOnl
       className="w-full h-auto max-h-[80vh] select-none touch-none"
       role="img"
       aria-label="Your network as orbits around you; distance is closeness"
+      onPointerDown={event => { if (event.target === svgRef.current) onSelect(null); }}
       onPointerMove={move}
       onPointerUp={end}
       onPointerCancel={() => setDrag(null)}
-      onClick={event => { if (event.target === svgRef.current) onSelect(null); }}
     >
       {RING_EDGE.slice(0, 4).map((edge, i) => {
         const r = edge * SCALE;
@@ -129,7 +129,8 @@ export default function OrbitMap({ layout, selected, onSelect, onIntent, readOnl
             stroke={selected === p.email || p.priority ? INK : 'none'} strokeWidth={selected === p.email ? 2 : 1.5}
             className={readOnly ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}
             style={dragging ? undefined : { transition: 'cx 350ms ease, cy 350ms ease' }}
-            onPointerDown={startDrag(p)}
+            onPointerDown={readOnly ? undefined : startDrag(p)}
+            onClick={readOnly ? () => onSelect(selected === p.email ? null : p.email) : undefined}
             onMouseEnter={() => setHovered(p.email)}
             onMouseLeave={() => setHovered(null)}
           >

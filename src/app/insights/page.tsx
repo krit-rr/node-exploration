@@ -112,7 +112,7 @@ export default function InsightsPage() {
               </ErrorBoundary>
 
               <ErrorBoundary label="DigestSettings">
-                <DigestSettings />
+                <DigestSettings contacts={contacts} priorityEmails={priorityEmails} />
               </ErrorBoundary>
 
               <ErrorBoundary label="IntroSuggestions">

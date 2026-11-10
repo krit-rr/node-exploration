@@ -1,4 +1,4 @@
-import OpenAI from 'openai';
+import { getOpenAI } from '@/lib/openai';
 
 export type Enrichment = { company: string | null; industry: string | null };
 
@@ -65,17 +65,6 @@ function normalize(value?: string | null): string | null {
   return cleaned;
 }
 
-let client: OpenAI | null = null;
-function getClient(): OpenAI {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY is not set');
-  }
-  if (!client) {
-    client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  }
-  return client;
-}
-
 /**
  * Ask the model for company/industry for an email address.
  *
@@ -88,7 +77,7 @@ export async function enrichViaAI(email: string): Promise<Enrichment> {
     return { company: null, industry: null };
   }
 
-  const completion = await getClient().chat.completions.create({
+  const completion = await getOpenAI().chat.completions.create({
     model: process.env.OPENAI_ENRICH_MODEL || 'gpt-4o-mini',
     messages: [
       {
