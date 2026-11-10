@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from './supabaseAdmin';
 import { Contact, ContactMemory, OpenLoop } from '@/types';
+import { MAX_INTERACTIONS } from '@/utils/interactions';
 
 /**
  * Server-side contact repository (Supabase, service-role only).
@@ -84,8 +85,6 @@ const saneTouch = (iso: string | null | undefined): string | null => {
 
 type Interaction = NonNullable<Contact['interactions']>[number];
 
-// Same cap logTouch uses; a merged history must not grow a row unboundedly.
-const MAX_INTERACTIONS = 50;
 
 /** Dedupe, sort newest-first, and cap a combined interaction history. */
 function combineInteractions(interactions: Interaction[]): Interaction[] {

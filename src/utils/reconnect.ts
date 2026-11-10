@@ -85,12 +85,14 @@ export function since(days: number): string {
 }
 
 /** The one line that says where this relationship stands. */
-export function cadenceStatus(assessment: CadenceAssessment): string {
-  if (assessment.neverTouched) return `Added ${since(assessment.daysSince)} ago, no touch yet`;
+export function cadenceStatus(assessment: CadenceAssessment, { then = false }: { then?: boolean } = {}): string {
+  // "ago" counts back from now; a replayed assessment counts back from the replayed moment.
+  const ago = then ? 'before then' : 'ago';
+  if (assessment.neverTouched) return `Added ${since(assessment.daysSince)} ${ago}, no touch yet`;
   if (assessment.cadence.source === 'pair') {
     return `Usually every ${since(Math.round(assessment.cadence.typicalDays))}, quiet for ${since(assessment.daysSince)}`;
   }
-  return `Last touch ${since(assessment.daysSince)} ago`;
+  return `Last touch ${since(assessment.daysSince)} ${ago}`;
 }
 
 /**
