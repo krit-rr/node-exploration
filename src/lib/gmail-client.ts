@@ -83,17 +83,19 @@ export class GmailClient {
 
         // Split only on commas outside double quotes: display names like
         // "Doe, John" <john@x.com> contain commas that are not separators.
-        const recipients = ['To', 'Cc', 'Bcc'].flatMap(header =>
+        const parseList = (header: string) =>
           getHeader(header)
             .split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
             .map(addr => addr.trim())
             .filter(Boolean)
-            .map(addr => this.parseEmailAddress(addr))
-        );
+            .map(addr => this.parseEmailAddress(addr));
+        const recipients = ['To', 'Cc'].flatMap(parseList);
+        const bccRecipients = parseList('Bcc');
 
         return {
           sentDateTime: dateStr,
           recipients,
+          bccRecipients,
           subject: getHeader('Subject') || undefined,
           // The snippet (first ~100 chars of the body) ships with the
           // metadata format, so capturing it costs no extra API call.

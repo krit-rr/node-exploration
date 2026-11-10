@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Contact } from '@/types';
 import { dismissCircle, readDismissedCircles, suggestCircles } from '@/utils/circles';
 
@@ -26,13 +26,17 @@ function ago(iso: string): string {
  * emails. One tap keeps a circle as a real group; dismissing it is final.
  */
 export default function SuggestedCircles({ contacts, groups, userEmail, onCreateGroup }: Props) {
-  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    if (userEmail) setDismissed(readDismissedCircles(userEmail));
-  }, [userEmail]);
+  // Read with the user known, in the same render as the cards, so a dismissed circle never flashes.
+  const [dismissedVersion, setDismissedVersion] = useState(0);
+  const dismissed = useMemo(
+    () => (userEmail ? readDismissedCircles(userEmail) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [userEmail, dismissedVersion]
+  );
 
+  // Dismissed circles are filtered before the cut to four, so the next-strongest circle takes the slot.
   const suggestions = useMemo(
-    () => suggestCircles(contacts, groups, { limit: 4 }).filter(circle => !dismissed.has(circle.key)),
+    () => suggestCircles(contacts, groups, { limit: 4, dismissed }),
     [contacts, groups, dismissed]
   );
   const namesByEmail = useMemo(
@@ -42,9 +46,9 @@ export default function SuggestedCircles({ contacts, groups, userEmail, onCreate
 
   if (suggestions.length === 0) return null;
 
-  const dismiss = (key: string) => {
-    setDismissed(prev => new Set(prev).add(key));
-    if (userEmail) dismissCircle(userEmail, key);
+  const dismiss = (members: string[]) => {
+    if (userEmail) dismissCircle(userEmail, members);
+    setDismissedVersion(v => v + 1);
   };
 
   return (
@@ -71,7 +75,7 @@ export default function SuggestedCircles({ contacts, groups, userEmail, onCreate
                 Make a group
               </button>
               <button
-                onClick={() => dismiss(circle.key)}
+                onClick={() => dismiss(circle.members)}
                 className="text-xs px-2 py-1 rounded-md text-gray-500 hover:bg-gray-100 transition-colors"
                 title="Not a circle; do not suggest it again"
               >

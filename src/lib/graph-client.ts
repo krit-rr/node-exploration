@@ -43,8 +43,8 @@ export class GraphClient {
         recipients: [
           ...(message.toRecipients ?? []),
           ...(message.ccRecipients ?? []),
-          ...(message.bccRecipients ?? []),
         ],
+        bccRecipients: message.bccRecipients ?? [],
         subject: message.subject || undefined,
         snippet: message.bodyPreview || undefined
       }));

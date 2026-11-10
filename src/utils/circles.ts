@@ -1,4 +1,5 @@
 import type { Contact } from '@/types';
+import { AUTOMATED_ADDRESS } from '@/utils/reconnect';
 
 /**
  * Circles: the groups a user already has without ever making one.
@@ -13,7 +14,7 @@ import type { Contact } from '@/types';
  */
 
 export interface CircleSuggestion {
-  /** Stable across recomputation: a hash of the sorted member list. Dismissals hang on it. */
+  /** A hash of the sorted member list, for rendering; dismissals hang on the members themselves. */
   key: string;
   name: string;
   /** Member emails, most recently contacted first. */
@@ -35,12 +36,12 @@ const MIN_MEMBERS = 3;
 const MIN_MESSAGES = 2;
 /** Enough recent weight to be worth a card: two messages this quarter, or several older ones. */
 const MIN_WEIGHT = 1.0;
-/** Containment at which a smaller co-recipient set is a sub-thread of a bigger circle. */
+/** Share of a weaker set that sits inside a stronger circle for it to count as that circle's sub-thread. */
 const MERGE_CONTAINMENT = 0.6;
-/** Jaccard overlap at which a suggestion is an existing group and must not be suggested again. */
+/** Share of a circle already inside one existing group for it to be that group, and not suggested again. */
 const EXISTING_OVERLAP = 0.8;
-
-const AUTOMATED_ADDRESS = /^(no-?reply|noreply|newsletter|notifications?|marketing|updates|info|support|hello)@/i;
+/** Jaccard overlap at which a circle is one the user already dismissed, whichever members drift in or out. */
+const DISMISSED_OVERLAP = 0.6;
 const CONSUMER_DOMAINS = new Set([
   'gmail.com', 'googlemail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'live.com',
   'icloud.com', 'me.com', 'aol.com', 'proton.me', 'protonmail.com',
@@ -59,9 +60,9 @@ function shared(a: Set<string>, b: Set<string>): number {
   return n;
 }
 
-/** Share of the smaller set found in the larger: 1 when one contains the other. */
-function containment(a: Set<string>, b: Set<string>): number {
-  return shared(a, b) / Math.min(a.size, b.size);
+/** Share of `part` found inside `whole`: 1 when the whole contains every member of the part. */
+function containedIn(part: Set<string>, whole: Set<string>): number {
+  return part.size === 0 ? 0 : shared(part, whole) / part.size;
 }
 
 /** Intersection over union: 1 only when the sets are identical. */
@@ -107,13 +108,19 @@ function nameCircle(members: string[], byEmail: Map<string, Contact>): string {
 export function suggestCircles(
   contacts: Contact[],
   existingGroups: { members: string[] }[],
-  { limit = 4, now = Date.now() }: { limit?: number; now?: number } = {}
+  { limit = 4, now = Date.now(), dismissed = [] }: { limit?: number; now?: number; dismissed?: string[][] } = {}
 ): CircleSuggestion[] {
+  // Every address a contact answers to maps to that contact, so a merged
+  // duplicate's old address lands in the same circle as its row.
   const byEmail = new Map<string, Contact>();
   for (const contact of contacts) {
     const email = contact.email.toLowerCase();
     if (contact.isSpam || AUTOMATED_ADDRESS.test(email)) continue;
     byEmail.set(email, contact);
+    for (const alt of contact.altEmails ?? []) {
+      const altEmail = alt.toLowerCase();
+      if (altEmail.includes('@') && !byEmail.has(altEmail)) byEmail.set(altEmail, contact);
+    }
   }
 
   type Bucket = { members: string[]; set: Set<string>; weight: number; messages: number; lastSeen: number };
@@ -129,8 +136,8 @@ export function suggestCircles(
       if (isNaN(t)) continue;
       const memberSet = new Set<string>([self]);
       for (const participant of others) {
-        const email = participant.toLowerCase();
-        if (byEmail.has(email)) memberSet.add(email);
+        const member = byEmail.get(participant.toLowerCase());
+        if (member) memberSet.add(member.email.toLowerCase());
       }
       if (memberSet.size < MIN_MEMBERS) continue;
       const members = Array.from(memberSet).sort();
@@ -151,11 +158,12 @@ export function suggestCircles(
     }
   }
 
-  // A sub-thread of a circle is that circle: fold near-identical sets into
-  // the strongest one, keeping the strongest one's members.
+  // A sub-thread of a circle is that circle: fold a weaker set that sits
+  // mostly inside a stronger one into it, keeping the stronger one's
+  // members. A bigger set that merely shares a couple of people stays apart.
   const kept: Bucket[] = [];
   for (const bucket of Array.from(buckets.values()).sort((a, b) => b.weight - a.weight)) {
-    const home = kept.find(k => containment(k.set, bucket.set) >= MERGE_CONTAINMENT);
+    const home = kept.find(k => containedIn(bucket.set, k.set) >= MERGE_CONTAINMENT);
     if (home) {
       home.weight += bucket.weight;
       home.messages += bucket.messages;
@@ -166,9 +174,13 @@ export function suggestCircles(
   }
 
   const existing = existingGroups.map(g => new Set(g.members.map(m => m.toLowerCase())));
+  const gone = dismissed.map(members => new Set(members.map(m => m.toLowerCase())));
   return kept
     .filter(b => b.messages >= MIN_MESSAGES && b.weight >= MIN_WEIGHT)
-    .filter(b => !existing.some(g => jaccard(g, b.set) >= EXISTING_OVERLAP))
+    // Already a group (or a part of one): nothing to suggest.
+    .filter(b => !existing.some(g => containedIn(b.set, g) >= EXISTING_OVERLAP))
+    // Dismissed before, give or take a member: still dismissed, and the next circle takes the slot.
+    .filter(b => !gone.some(d => jaccard(d, b.set) >= DISMISSED_OVERLAP))
     .sort((a, b) => b.weight - a.weight)
     .slice(0, limit)
     .map(b => {
@@ -187,24 +199,30 @@ export function suggestCircles(
 }
 
 // Dismissals are per user and per browser: a circle the user said is not a
-// circle stays gone on this device, and sign-out purges the key.
+// circle stays gone on this device, and sign-out purges the key. What is
+// kept is the member list, so the circle stays gone when the people on it
+// shift a little, not a hash that changes with them.
 const DISMISSED_PREFIX = 'dismissed-circles_';
 
-export function readDismissedCircles(userEmail: string): Set<string> {
+export function readDismissedCircles(userEmail: string): string[][] {
   try {
     const raw = localStorage.getItem(`${DISMISSED_PREFIX}${userEmail}`);
     const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry): entry is unknown[] => Array.isArray(entry))
+      .map(entry => entry.filter((m): m is string => typeof m === 'string').map(m => m.toLowerCase()))
+      .filter(entry => entry.length > 0);
   } catch {
-    return new Set();
+    return [];
   }
 }
 
-export function dismissCircle(userEmail: string, key: string): Set<string> {
+export function dismissCircle(userEmail: string, members: string[]): string[][] {
   const dismissed = readDismissedCircles(userEmail);
-  dismissed.add(key);
+  dismissed.push(members.map(m => m.toLowerCase()).sort());
   try {
-    localStorage.setItem(`${DISMISSED_PREFIX}${userEmail}`, JSON.stringify(Array.from(dismissed)));
+    localStorage.setItem(`${DISMISSED_PREFIX}${userEmail}`, JSON.stringify(dismissed));
   } catch (error) {
     console.error('Failed to remember the dismissed circle:', error);
   }
