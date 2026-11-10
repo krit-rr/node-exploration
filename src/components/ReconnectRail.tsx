@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Contact } from '@/types';
-import { computeReconnectQueue, type ReconnectCandidate } from '@/utils/reconnect';
+import { cadenceStatus, computeReconnectQueue, type ReconnectCandidate } from '@/utils/reconnect';
 
 export type TouchChannel = 'email' | 'call' | 'meeting' | 'other';
 
@@ -12,15 +12,17 @@ interface Props {
   onSnoozed: (email: string, snoozedUntil: string) => void;
   /** Apply a logged touch to local state; the rail fires the API call itself. */
   onTouchLogged: (email: string, channel: TouchChannel) => void;
-  /** Extra priority members (e.g. everyone in a group); tagged contacts are always priority. */
+  /** Extra priority members (everyone in a group); the key-contact tag is read from the contact itself. */
   priorityEmails?: Set<string>;
   compact?: boolean;
 }
 
-function since(days: number): string {
-  if (days >= 365) return `${Math.floor(days / 365)}y`;
-  if (days >= 60) return `${Math.floor(days / 30)}mo`;
-  return `${days}d`;
+/** Why this card is here, against the pair's own rhythm or the user's. */
+function rhythmTitle(candidate: ReconnectCandidate): string {
+  const pct = Math.round(candidate.overdue * 100);
+  return candidate.cadence.source === 'pair'
+    ? `A ${pct}% chance this silence is already past this relationship's usual gap, learned from ${candidate.cadence.gaps} past conversations`
+    : `A ${pct}% chance this silence is already past your usual gap; too little history with this person to know their own rhythm yet`;
 }
 
 const CHANNELS: { key: TouchChannel; label: string }[] = [
@@ -108,10 +110,8 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
                   {candidate.contact.company || email}
                 </p>
               </div>
-              <p className="text-xs text-gray-400">
-                {candidate.neverTouched
-                  ? <>Added {since(candidate.daysSince)} ago, no touch yet</>
-                  : <>Last touch {since(candidate.daysSince)} ago</>}
+              <p className="text-xs text-gray-400" title={rhythmTitle(candidate)}>
+                {cadenceStatus(candidate)}
                 {candidate.lastSubject ? <> &middot; <span className="italic">&ldquo;{candidate.lastSubject}&rdquo;</span></> : null}
               </p>
               {candidate.contact.metAt && (

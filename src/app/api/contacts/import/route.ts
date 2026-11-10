@@ -64,8 +64,10 @@ export async function POST(
       email: contact.email.toLowerCase(),
       company: contact.company || '',
       industry: contact.industry || undefined,
-      lastContacted: contact.lastContacted || contact.lastEmailed || new Date().toISOString(),
-      lastContactedRaw: contact.lastContacted || contact.lastEmailed || new Date().toISOString(),
+      // No date in the file means no touch on record: the row ages from
+      // when Node first saw it, instead of the import day counting as a touch.
+      lastContacted: contact.lastContacted || contact.lastEmailed || '',
+      lastContactedRaw: contact.lastContacted || contact.lastEmailed || '',
       metAt: typeof contact.metAt === 'string' && contact.metAt.trim() ? contact.metAt.trim().slice(0, 200) : undefined,
       importedAt: new Date().toISOString(),
       source: 'csv_import',

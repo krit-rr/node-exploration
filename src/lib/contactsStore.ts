@@ -72,6 +72,14 @@ const latestIso = (a: string | null, b: string | null): string | null => {
   return new Date(a) > new Date(b) ? a : b;
 };
 
+// A touch cannot be in the future; a typo in an imported date must not mask
+// every real touch after it. Anything past tomorrow is treated as unknown.
+const saneTouch = (iso: string | null | undefined): string | null => {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return !isNaN(t) && t <= Date.now() + 24 * 60 * 60 * 1000 ? iso : null;
+};
+
 type Interaction = NonNullable<Contact['interactions']>[number];
 
 // Same cap logTouch uses; a merged history must not grow a row unboundedly.
@@ -141,10 +149,10 @@ export async function listContacts(
 /**
  * Merge provider-derived contacts into the store.
  *
- * Provider data wins on recency (lastContacted, interactions); stored user
- * data wins on identity and intent (name edits, company/industry enrichment,
- * custom fields, tags, notes, spam flags). Rows the provider no longer
- * returns are left untouched.
+ * History is combined and the newest touch wins on recency, whichever side
+ * recorded it; stored user data wins on identity and intent (name edits,
+ * company/industry enrichment, custom fields, tags, notes, spam flags). Rows
+ * the provider no longer returns are left untouched.
  */
 export async function mergeProviderContacts(
   owner: string,
@@ -199,11 +207,11 @@ export async function mergeProviderContacts(
   const rows = Array.from(byTarget.entries()).map(([email, group]) => {
     const prior = existing.get(email);
     const direct = group.find((c) => c.email.toLowerCase() === email) ?? group[0];
-    const redirected = group.some((c) => c.email.toLowerCase() !== email);
-    // A merged row's history spans addresses the provider reports separately
-    // (or no longer reports at all), so combine instead of the usual
-    // provider-wins replacement; plain rows keep the replacement semantics.
-    const spansAddresses = redirected || asArray(prior?.alt_emails).length > 0;
+    // History is combined, never replaced: a logged call or meeting, an
+    // imported last-emailed date, and emails that have since left the
+    // provider's window all outlive the next sync, and the reconnect queue
+    // learns a pair's rhythm from the gaps between them. Merged rows span
+    // addresses the provider reports separately; the same combine covers them.
     const incomingLatest = group.reduce<string | null>(
       (latest, c) => latestIso(latest, c.lastContacted || null),
       null
@@ -216,15 +224,11 @@ export async function mergeProviderContacts(
       name: prior?.name || direct.name || email,
       company: direct.company ?? prior?.company ?? null,
       industry: direct.industry ?? prior?.industry ?? null,
-      last_contacted: spansAddresses
-        ? latestIso(incomingLatest, prior?.last_contacted ?? null)
-        : direct.lastContacted || prior?.last_contacted || null,
-      interactions: spansAddresses
-        ? combineInteractions([
-            ...group.flatMap((c) => c.interactions ?? []),
-            ...(asArray(prior?.interactions) as Interaction[]),
-          ])
-        : direct.interactions ?? [],
+      last_contacted: latestIso(saneTouch(incomingLatest), saneTouch(prior?.last_contacted)),
+      interactions: combineInteractions([
+        ...group.flatMap((c) => c.interactions ?? []),
+        ...(asArray(prior?.interactions) as Interaction[]),
+      ]),
       source: provider,
       enriched_by: direct.enrichedBy ?? null,
       updated_at: now,
