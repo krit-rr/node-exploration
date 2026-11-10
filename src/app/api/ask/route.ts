@@ -9,6 +9,7 @@ import { answerQuestion } from '@/lib/ask';
 import { rateLimit } from '@/lib/rateLimit';
 import { openaiConfigured } from '@/lib/openai';
 import { rankPeople, type AskHit } from '@/utils/ask';
+import { getTieModel } from '@/lib/tieStore';
 
 const CANDIDATES = 12;
 const MAX_QUESTION = 300;
@@ -79,7 +80,8 @@ export async function POST(request: Request) {
       })),
     ];
     const priorityEmails = new Set(groups.groups.flatMap(g => g.members.map(m => m.toLowerCase())));
-    const people = rankPeople(hits, stored.contacts, { priorityEmails });
+    const model = (await getTieModel(owner).catch(() => null))?.model;
+    const people = rankPeople(hits, stored.contacts, { priorityEmails, model });
     const answer = await answerQuestion(question, people);
 
     const response = NextResponse.json({

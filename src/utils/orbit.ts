@@ -1,6 +1,7 @@
 import type { Contact } from '@/types';
 import { assessCadence, isGoingCold, isPriorityContact, isSnoozed, lastTouchTime, PRIORITY_TAG, type CadenceAssessment } from '@/utils/reconnect';
 import { MAX_INTERACTIONS } from '@/utils/interactions';
+import { blendCloseness, tieFeatures, tieStrength, type TieModel } from '@/utils/tieStrength';
 
 /**
  * The orbit map: every contact as a point around the user, distance being
@@ -82,6 +83,21 @@ export function clusterKey(contact: Contact): string {
  * full marks) and depth of history, with a nudge for people the user
  * marked out. A heuristic, deliberately simple; the model replaces it.
  */
+/**
+ * Closeness with the learned model mixed in: the heuristic alone until the
+ * user's model has twenty labels, the model alone from a hundred.
+ */
+export function learnedCloseness(
+  contact: Contact,
+  assessment: CadenceAssessment,
+  priority: boolean,
+  { model, now = Date.now(), priorityEmails }: { model?: TieModel; now?: number; priorityEmails?: Set<string> } = {}
+): number {
+  const heuristic = closenessScore(assessment, priority);
+  if (!model || model.labels <= 0) return heuristic;
+  return blendCloseness(heuristic, tieStrength(tieFeatures(contact, assessment, { now, priorityEmails }), model), model.labels);
+}
+
 export function closenessScore(assessment: CadenceAssessment, priority: boolean): number {
   // Someone Node knows about but has never touched has no recency, whatever their row's age.
   const recency = assessment.neverTouched ? 0 : Math.pow(0.5, Math.max(0, assessment.daysSince) / RECENCY_HALF_LIFE_DAYS);
@@ -263,7 +279,7 @@ export function orbitMoves(contacts: Contact[], { days = 7, now = Date.now() }: 
 
 export function computeOrbit(
   contacts: Contact[],
-  { priorityEmails, now = Date.now(), replay = false }: { priorityEmails?: Set<string>; now?: number; replay?: boolean } = {}
+  { priorityEmails, now = Date.now(), replay = false, model }: { priorityEmails?: Set<string>; now?: number; replay?: boolean; model?: TieModel } = {}
 ): OrbitLayout {
   const assessments = assessCadence(contacts, undefined, now);
   const scored: { contact: Contact; email: string; assessment: CadenceAssessment; priority: boolean; closeness: number }[] = [];
@@ -273,7 +289,13 @@ export function computeOrbit(
     if (!assessment) continue;
     // Tags and groups are today's marks too: a replayed layout ranks on activity alone.
     const priority = !replay && isPriorityContact(contact, priorityEmails);
-    scored.push({ contact, email, assessment, priority, closeness: closenessScore(assessment, !replay && rankPriority(contact, priorityEmails)) });
+    scored.push({
+      contact,
+      email,
+      assessment,
+      priority,
+      closeness: learnedCloseness(contact, assessment, !replay && rankPriority(contact, priorityEmails), { model: replay ? undefined : model, now, priorityEmails }),
+    });
   }
   scored.sort((a, b) => b.closeness - a.closeness || a.email.localeCompare(b.email));
 

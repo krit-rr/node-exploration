@@ -9,6 +9,8 @@ import OrbitMap from '@/components/OrbitMap';
 import { persistContacts, useContacts, type ContactsData } from '@/hooks/useContacts';
 import { computeOrbit, contactsAsOf, displacedByIntent, LAYER_CAPACITY, LAYER_NAMES, orbitMoves, type OrbitPoint } from '@/utils/orbit';
 import { useIntros } from '@/hooks/useIntros';
+import { useTieModel } from '@/hooks/useTieModel';
+import { MIN_LABELS } from '@/utils/tieStrength';
 import { cadenceStatus } from '@/utils/reconnect';
 import { MAX_INTERACTIONS } from '@/utils/interactions';
 
@@ -56,10 +58,11 @@ export default function OrbitPage() {
   const shownWeeksAgo = useDeferredValue(weeksAgo);
   const at = useMemo(() => (shownWeeksAgo === 0 ? null : Date.now() - shownWeeksAgo * WEEK_MS), [shownWeeksAgo]);
   const replay = useMemo(() => (at === null ? null : contactsAsOf(contacts, at)), [contacts, at]);
+  const model = useTieModel();
   const layout = useMemo(() => {
-    if (!replay || at === null) return computeOrbit(contacts, { priorityEmails });
+    if (!replay || at === null) return computeOrbit(contacts, { priorityEmails, model });
     return computeOrbit(replay.contacts, { now: at, replay: true });
-  }, [contacts, priorityEmails, replay, at]);
+  }, [contacts, priorityEmails, replay, at, model]);
   const replaying = weeksAgo > 0 || replay !== null;
   const thenLabel = `${shownWeeksAgo} week${shownWeeksAgo === 1 ? '' : 's'} ago`;
   const [selected, setSelected] = useState<string | null>(null);
@@ -187,6 +190,13 @@ export default function OrbitPage() {
                   ? 'Replaying where everyone sat then, by activity alone. Drag works in the present.'
                   : 'Slide left to replay the last year of drift.'}
               </p>
+              {!replaying && (
+                <p className="px-2 pt-1 text-[11px] text-gray-400">
+                  {model.labels >= MIN_LABELS
+                    ? `Closeness has learned from ${model.labels} of your touches, snoozes and marks.`
+                    : `Closeness is the built-in rule for now. It learns from each touch you log, each snooze, and each person you mark; ${MIN_LABELS} are needed before it counts.`}
+                </p>
+              )}
               {replay && replay.beyondRecord > 0 && (
                 <p className="px-2 pt-1 text-[11px] text-gray-400">
                   {replay.beyondRecord === 1 ? '1 person has' : `${replay.beyondRecord} people have`} more history than Node keeps (the newest {MAX_INTERACTIONS} messages), so this far back {replay.beyondRecord === 1 ? 'they are' : 'they are'} left out rather than shown as strangers.

@@ -52,6 +52,7 @@ All tables: RLS on, no policies, service-role access only. Keyed by `owner_email
 | `digest_subscribers` | `owner_email` | who opted in to the Monday digest, and when it was last sent |
 | `sync_cursors` | `(owner_email, provider)` | how far back the mailbox has been read: the oldest message so far, pages and messages read, done |
 | `rosters` | `(owner_email, event)` | an event's attendee list, kept apart from contacts until the people on it are ticked as met |
+| `relationship_labels` / `tie_models` | owner + contact / `owner_email` | what the user's actions said about a relationship (a touch, tag or inner-ring intent is positive; a snooze or spam flag negative) with the features at that moment, and the per-user logistic model learned from them |
 
 Migrations live in `supabase/migrations/` and are applied via the Supabase SQL editor or `supabase db push`. They are idempotent (`if not exists` throughout).
 
@@ -73,6 +74,7 @@ Migrations live in `supabase/migrations/` and are applied via the Supabase SQL e
 | `/api/contacts/rehearsal` | POST | record a name card answer; the next due time is computed from the stored entry | session; 120/min |
 | `/api/contacts/backfill` | GET, POST | how far back the mail history reaches; read one more page of older sent mail and merge it | JWT token; POST 6/min |
 | `/api/rosters` | GET, PUT, DELETE | event rosters: list them, read one, save or replace one (up to 2000 entries), drop one | session; PUT 10/min |
+| `/api/model` | GET | the caller's tie-strength model: weights, bias, labels learned from | session |
 | `/api/ask` | POST | a question about the network: matching contacts and past emails, ranked with the middle rings first, and a short grounded answer when a model is configured | session; 10/min |
 | `/api/digest` | GET, PUT | whether the caller is subscribed and sending is configured (`?format=html` renders the digest as it would be sent today); opt in or out | session; 20/min and 30/min |
 | `/api/digest/send` | GET, POST | mail the digest to everyone who opted in; skips people with nobody going cold and people mailed in the last six days (`?force=1` overrides) | `CRON_SECRET` bearer token |
@@ -101,6 +103,7 @@ Error responses are generic; details stay in server logs.
 - `src/app/insights/page.tsx`: compact rail, `NetworkScore` (priority-aware, computed), `SmartInsights` groupings, activity timeline. Everything memoized; widgets wrapped in error boundaries.
 - `src/hooks/useContacts.ts`: the one contacts query plus `persistContacts` and `syncContacts`. All cache writers produce the same shape.
 - `src/utils/reconnect.ts` and `src/utils/cadence.ts`: the going-cold queue, judged per relationship. Touches within a week of each other are one conversation (a thread is not a rhythm). A pair with three or more past gaps between conversations is measured against its own rhythm (a log-normal over those gaps); with less history it is measured against the user's typical gap (one value per contact, pooled), floored at 45 days. A contact enters the queue when the silence is more likely than not to be past that typical gap, and never under two weeks of silence. Spam and no-reply excluded, snoozes respected, priority contacts first, then the furthest past their own rhythm (in spreads, so a long silence against a loose rhythm still outranks a short one against a tight rhythm). Priority means tagged `key-contact` or in a group (`isPriorityContact`); other tags do not reorder the queue. A contact with no recorded touch ages from `createdAt` instead of being skipped.
+- `src/utils/tieStrength.ts` and `tieStore`: tie strength that learns. Seven features from what Node already stores (recency, tenure, volume, reciprocity, intimacy words, structure, marks), a global logistic prior shaped by the published results, and per-user weights that take one gradient step for every action that says who matters (a logged touch, a key-contact tag, an inner-ring intent) or does not (a snooze, a spam flag), recorded with the features at that moment. Closeness on the orbit map, in intros and in asks mixes the model in gradually: nothing below twenty labels, everything from a hundred; the replay stays on activity alone. Recording is best effort and never fails the action that produced the label.
 - `src/utils/networkAnalytics.ts`: the score. With 3+ priority contacts (key-contact or grouped) it measures that subset.
 - `src/lib/`: `contactsStore`, `groupsStore`, `viewsStore` (service-role repositories), `email-contacts` (shared mail aggregation core for the Gmail and Graph clients), `enrich*`, `rateLimit`, `clientSignOut`.
 

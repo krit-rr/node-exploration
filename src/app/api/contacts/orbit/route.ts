@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { setIntendedLayer } from '@/lib/contactsStore';
 import { rateLimit } from '@/lib/rateLimit';
+import { recordLabels } from '@/lib/tieStore';
 
 /**
  * POST /api/contacts/orbit: where the user wants a contact to sit, from a
@@ -32,6 +33,8 @@ export async function POST(request: Request) {
     }
     try {
       const result = await setIntendedLayer(owner, email, layer);
+      // Pulling someone into the inner two rings says they matter.
+      if (result.available && result.found && (layer === 1 || layer === 2)) void recordLabels(owner, [email], 1, 'intent');
       if (result.available && !result.found) {
         return NextResponse.json({ persisted: false, reason: 'not-found' });
       }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { setSpamFlags } from '@/lib/contactsStore';
+import { recordLabels } from '@/lib/tieStore';
 
 const MAX_EMAILS = 500;
 
@@ -21,6 +22,7 @@ export async function POST(request: Request) {
 
     try {
       const result = await setSpamFlags(session.user.email.toLowerCase(), emails, isSpam);
+      if (result.available && isSpam) void recordLabels(session.user.email.toLowerCase(), emails, -1, 'spam');
       return NextResponse.json({ persisted: result.available });
     } catch (error) {
       console.error('Failed to persist spam flags:', error);
