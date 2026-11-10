@@ -7,6 +7,7 @@ import {
   userPrior,
   type CadenceEstimate,
 } from '@/utils/cadence';
+import { lastSubject } from '@/utils/interactions';
 
 export interface CadenceAssessment {
   daysSince: number;
@@ -134,14 +135,10 @@ export function computeReconnectQueue(
     if (isSnoozed(contact, now)) continue;
     if (!isGoingCold(assessment)) continue;
 
-    const sent = (contact.interactions ?? []).filter(i => i.type === 'sent');
-    const lastWithSubject = [...sent].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .find(i => i.subject);
-
     candidates.push({
       ...assessment,
       contact,
-      lastSubject: lastWithSubject?.subject,
+      lastSubject: lastSubject(contact),
       priority: isPriorityContact(contact, priorityEmails),
     });
   }

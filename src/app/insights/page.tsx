@@ -6,7 +6,10 @@ import NetworkScore from '@/components/insights/NetworkScore';
 import TimeframeSelector from '@/components/insights/TimeframeSelector';
 import RelationshipTimeline from '@/components/insights/RelationshipTimeline';
 import SmartInsights from '@/components/insights/SmartInsights';
-import { useContacts } from '@/hooks/useContacts';
+import { persistContacts, useContacts, type ContactsData } from '@/hooks/useContacts';
+import { useQueryClient } from '@tanstack/react-query';
+import { useSession } from 'next-auth/react';
+import type { RehearsalEntry } from '@/types';
 import { useEffect, useMemo } from 'react';
 import { computeReconnectQueue } from '@/utils/reconnect';
 import ErrorBoundary from '@/components/ErrorBoundary';
@@ -24,6 +27,19 @@ export default function InsightsPage() {
   // page loads first primes the cache for the other.
   const { data: contactsData, isLoading, error, refetch } = useContacts();
   const contacts = contactsData?.contacts ?? [];
+  const queryClient = useQueryClient();
+  const { data: session } = useSession();
+
+  // An answered name card: keep the new schedule with the contact everywhere.
+  const handleRehearsed = (email: string, entry: RehearsalEntry) => {
+    queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
+      const existing = oldData?.contacts ?? [];
+      const merged = existing.map(c => (c.email.toLowerCase() === email.toLowerCase() ? { ...c, rehearsal: entry } : c));
+      return session?.user?.email
+        ? persistContacts(session.user.email, merged)
+        : { contacts: merged, lastUpdated: new Date().toISOString() };
+    });
+  };
 
   // Smart-group clusters become real, account-synced groups.
   const createGroupFromInsight = async (name: string, members: Set<string>) => {
@@ -104,7 +120,7 @@ export default function InsightsPage() {
               </ErrorBoundary>
 
               <ErrorBoundary label="RehearsalCard">
-                <RehearsalCard contacts={contacts} />
+                <RehearsalCard contacts={contacts} onRecorded={handleRehearsed} />
               </ErrorBoundary>
 
               <ErrorBoundary label="NetworkScore">

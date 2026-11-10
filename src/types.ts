@@ -45,6 +45,8 @@ export interface Contact {
   intendedLayer?: number;
   /** What Node has read out of the mail about this person; see ContactMemory. */
   memory?: ContactMemory;
+  /** Name rehearsal schedule; see RehearsalEntry. */
+  rehearsal?: RehearsalEntry;
   enrichedBy?: 'ai';
 }
 
@@ -66,6 +68,16 @@ export interface ContactMemory {
   /** Hash of the interactions it was read from; unchanged history never costs another model call. */
   sourceHash: string;
   updatedAt: string;
+}
+
+/** Where a contact's name card sits in the rehearsal schedule. */
+export interface RehearsalEntry {
+  /** ISO time the card is due again. */
+  due: string;
+  /** Index into the expanding intervals reached by successive recalls. */
+  step: number;
+  reps: number;
+  lastResult?: 'got' | 'missed';
 }
 
 export type Group = {

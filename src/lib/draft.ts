@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import type { Contact } from '@/types';
+import { lastSubject } from '@/utils/interactions';
 
 /**
  * The one-tap reconnect draft: the hardest step of staying in touch is the
@@ -50,13 +51,6 @@ function sinceText(days: number): string {
   if (days >= 60) return `${Math.floor(days / 30)} months`;
   if (days >= 14) return `${Math.round(days / 7)} weeks`;
   return `${days} days`;
-}
-
-/** The newest subject line on record, if any. */
-function lastSubject(contact: Contact): string | undefined {
-  return [...(contact.interactions ?? [])]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .find(i => i.subject?.trim())?.subject?.trim();
 }
 
 /** The facts the draft may use, one per line, for the model and for the template alike. */

@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from './supabaseAdmin';
-import { Contact, ContactMemory } from '@/types';
+import { Contact, ContactMemory, RehearsalEntry } from '@/types';
 
 /**
  * Server-side contact repository (Supabase, service-role only).
@@ -33,6 +33,7 @@ type ContactRow = {
   created_at?: string;
   intended_layer?: number | null;
   memory?: unknown;
+  rehearsal?: unknown;
 };
 
 // Postgres error codes for "relation does not exist" / RLS-off states we
@@ -52,7 +53,7 @@ const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 // database has them, PostgREST rejects statements naming those columns
 // (PGRST204 / 42703); strip them and retry so core persistence keeps
 // working pre-migration.
-const NEW_COLUMNS = ['met_at', 'snoozed_until', 'introduced_by', 'alt_emails', 'intended_layer', 'memory'] as const;
+const NEW_COLUMNS = ['met_at', 'snoozed_until', 'introduced_by', 'alt_emails', 'intended_layer', 'memory', 'rehearsal'] as const;
 
 function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
@@ -132,6 +133,7 @@ export function rowToContact(row: ContactRow): Contact {
     createdAt: row.created_at ?? undefined,
     intendedLayer: typeof row.intended_layer === 'number' ? row.intended_layer : undefined,
     memory: asMemory(row.memory),
+    ...(row.rehearsal && typeof row.rehearsal === 'object' ? { rehearsal: row.rehearsal as RehearsalEntry } : {}),
     ...(asArray(row.alt_emails).length > 0
       ? { altEmails: asArray(row.alt_emails).map(String) }
       : {}),
@@ -750,6 +752,24 @@ export async function saveMemory(
   if (error) {
     if (isMissingStore(error) || isMissingColumn(error)) return { available: false };
     throw new Error(`Failed to save memory: ${error.message}`);
+  }
+  return { available: true };
+}
+
+/** Write a contact's rehearsal schedule. Only the rehearsal route writes this column. */
+export async function setRehearsal(
+  owner: string,
+  email: string,
+  entry: RehearsalEntry
+): Promise<{ available: boolean }> {
+  const { error } = await getSupabaseAdmin()
+    .from('contacts')
+    .update({ rehearsal: entry, updated_at: new Date().toISOString() })
+    .eq('owner_email', owner)
+    .eq('email', email.toLowerCase());
+  if (error) {
+    if (isMissingStore(error) || isMissingColumn(error)) return { available: false };
+    throw new Error(`Failed to save rehearsal: ${error.message}`);
   }
   return { available: true };
 }
