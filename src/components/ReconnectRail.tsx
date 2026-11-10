@@ -1,7 +1,9 @@
 'use client';
 
 import { useMemo, useState, useEffect, useRef } from 'react';
+import { useSession } from 'next-auth/react';
 import { Contact, type ContactMemory } from '@/types';
+import { composeLabel, composeUrl } from '@/utils/compose';
 import { computeReconnectQueue, type ReconnectCandidate } from '@/utils/reconnect';
 import { safeFormatDate } from '@/utils/dates';
 
@@ -23,6 +25,8 @@ interface Props {
    */
   onMemoryLoaded?: (memories: Record<string, ContactMemory>) => void;
 }
+
+type Draft = { email: string; subject: string; body: string; source: 'model' | 'template' };
 
 /** A memory is stale once there is mail newer than the last read. */
 function memoryIsStale(contact: Contact): boolean {
@@ -60,6 +64,10 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [logging, setLogging] = useState<string | null>(null);
   const memoryRequested = useRef<Set<string>>(new Set());
+  const { data: session } = useSession();
+  const provider = session?.provider;
+  const [drafting, setDrafting] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
 
   const queue = useMemo(
     () =>
@@ -91,6 +99,31 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
   }, [queue, onMemoryLoaded]);
 
   const hide = (email: string) => setHidden(prev => new Set(prev).add(email));
+
+  // The hardest step is the first sentence: ask for a draft, let the user
+  // edit it on the card, then open it in their own mail client.
+  const requestDraft = async (candidate: ReconnectCandidate) => {
+    const email = candidate.contact.email;
+    if (drafting) return;
+    setDrafting(email);
+    setLogging(null);
+    try {
+      const response = await fetch('/api/contacts/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      if (!response.ok) throw new Error(String(response.status));
+      const body = await response.json();
+      setDraft({ email, subject: String(body.subject ?? ''), body: String(body.body ?? ''), source: body.source === 'model' ? 'model' : 'template' });
+    } catch {
+      setDraft({ email, subject: 'Catching up', body: `Hi ${candidate.contact.name.split(' ')[0]},
+
+`, source: 'template' });
+    } finally {
+      setDrafting(null);
+    }
+  };
 
   const snooze = (candidate: ReconnectCandidate, days: number) => {
     const email = candidate.contact.email;
@@ -173,7 +206,51 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
                   <span className="text-gray-400"> &middot; {safeFormatDate(candidate.contact.memory.openLoops[0].date, 'MMM d', '')}</span>
                 </p>
               )}
-              {logging === email ? (
+              {draft?.email === email ? (
+                <div className="flex flex-col gap-1.5 mt-auto pt-1">
+                  <input
+                    value={draft.subject}
+                    onChange={e => setDraft({ ...draft, subject: e.target.value })}
+                    aria-label="Subject"
+                    className="text-xs px-2 py-1 rounded-md border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#1E1E3F]/20"
+                  />
+                  <textarea
+                    value={draft.body}
+                    onChange={e => setDraft({ ...draft, body: e.target.value })}
+                    aria-label="Message"
+                    rows={6}
+                    className="text-xs px-2 py-1 rounded-md border border-gray-200 resize-y focus:outline-none focus:ring-2 focus:ring-[#1E1E3F]/20"
+                  />
+                  <p className="text-[11px] text-gray-400">
+                    {draft.source === 'model'
+                      ? 'Written from your notes and emails. Edit before sending.'
+                      : 'Assembled from your notes, no model configured. Edit before sending.'}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <a
+                      href={composeUrl(provider, email, draft.subject, draft.body)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-medium px-2.5 py-1 rounded-md bg-[#1E1E3F] text-white hover:bg-[#2D2D5F] transition-colors"
+                    >
+                      Open in {composeLabel(provider)}
+                    </a>
+                    <button
+                      onClick={() => { setDraft(null); logTouch(candidate, 'email'); }}
+                      className="text-xs font-medium px-2 py-1 rounded-md border border-gray-200 text-[#1E1E3F] hover:bg-gray-50 transition-colors"
+                      title="I sent it: log the touch"
+                    >
+                      Sent it
+                    </button>
+                    <button
+                      onClick={() => setDraft(null)}
+                      className="text-xs px-1.5 py-1 rounded-md text-gray-500 hover:bg-gray-100 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : logging === email ? (
                 <div className="flex flex-wrap items-center gap-1.5 mt-auto pt-1">
                   {CHANNELS.map(({ key, label }) => (
                     <button
@@ -194,12 +271,14 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
                 </div>
               ) : (
                 <div className="flex items-center gap-2 mt-auto pt-1">
-                  <a
-                    href={`mailto:${email}`}
-                    className="text-xs font-medium px-2.5 py-1 rounded-md bg-[#1E1E3F] text-white hover:bg-[#2D2D5F] transition-colors"
+                  <button
+                    onClick={() => requestDraft(candidate)}
+                    disabled={drafting !== null}
+                    className="text-xs font-medium px-2.5 py-1 rounded-md bg-[#1E1E3F] text-white hover:bg-[#2D2D5F] transition-colors disabled:opacity-60"
+                    title="Write a short opener from your notes and emails, then open it in your mail client"
                   >
-                    Email
-                  </a>
+                    {drafting === email ? 'Drafting…' : 'Draft'}
+                  </button>
                   <button
                     onClick={() => setLogging(email)}
                     className="text-xs font-medium px-2 py-1 rounded-md border border-gray-200 text-[#1E1E3F] hover:bg-gray-50 transition-colors"
