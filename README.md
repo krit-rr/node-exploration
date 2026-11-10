@@ -67,6 +67,12 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 # Server-only: bypasses RLS, never expose to the browser
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+
+# Monday digest (optional): Resend sends it, the scheduler calls /api/digest/send
+# with CRON_SECRET as a bearer token (Vercel does this for the cron in vercel.json)
+RESEND_API_KEY=your-resend-key
+DIGEST_FROM=Node <digest@your-domain.com>
+CRON_SECRET=a-long-random-string
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
