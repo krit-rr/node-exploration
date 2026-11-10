@@ -4,15 +4,23 @@ import { getNetworkMetricsExplanation } from '@/utils/metricExplanations';
 import Tooltip from '@/components/Tooltip';
 import { Icon, IconName } from '@/components/ui';
 
+/** The one thing the score points at right now, with a way to do it. */
+export interface NextStep {
+  text: string;
+  label?: string;
+  onClick?: () => void;
+}
+
 interface Props {
   contacts: Contact[];
   className?: string;
   priorityEmails?: Set<string>;
   goingColdCount?: number;
   onViewChange?: (view: 'organize' | 'analyze') => void;
+  nextStep?: NextStep;
 }
 
-export default function NetworkScore({ contacts, priorityEmails, goingColdCount, onViewChange }: Props) {
+export default function NetworkScore({ contacts, priorityEmails, goingColdCount, onViewChange, nextStep }: Props) {
   const baseMetrics = calculateNetworkScore(contacts, priorityEmails);
   const metrics = getNetworkMetricsExplanation(baseMetrics.metrics);
   
@@ -48,6 +56,21 @@ export default function NetworkScore({ contacts, priorityEmails, goingColdCount,
                 {goingColdCount} going cold right now
               </p>
             )}
+            {nextStep && (
+              <div className="mt-3 rounded-lg bg-[#F4F4FF] px-3 py-2 max-w-xs">
+                <p className="text-xs font-medium text-[#1E1E3F]">Next step</p>
+                <p className="text-xs text-gray-600 mt-0.5">{nextStep.text}</p>
+                {nextStep.label && nextStep.onClick && (
+                  <button
+                    type="button"
+                    onClick={nextStep.onClick}
+                    className="mt-1.5 text-xs font-medium px-2.5 py-1 rounded-md bg-[#1E1E3F] text-white hover:bg-[#2D2D5F] transition-colors"
+                  >
+                    {nextStep.label}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="h-16 w-px bg-gray-200 hidden lg:block" />
@@ -60,7 +83,7 @@ export default function NetworkScore({ contacts, priorityEmails, goingColdCount,
             trend="up"
             label="Active Relationships"
             explanation={metrics.activeRelationships.explanation}
-            suggestion="Try reaching out to 3 contacts this week"
+            suggestion="The Going cold rail has an opener ready for each person past their rhythm"
           />
           
           <MetricCard
@@ -76,7 +99,7 @@ export default function NetworkScore({ contacts, priorityEmails, goingColdCount,
             trend="up"
             label="Network Reach"
             explanation={metrics.networkReach.explanation}
-            suggestion="Connect with similar professionals"
+            suggestion="Ask your network who could help with something, and see the intros worth making"
           />
         </div>
       </div>
@@ -85,10 +108,7 @@ export default function NetworkScore({ contacts, priorityEmails, goingColdCount,
       {onViewChange && (
         <div className="mt-8 pt-6 border-t border-gray-100">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-medium text-gray-600">Suggested Actions</h4>
-            <button className="text-sm text-[#1E1E3F] hover:text-[#2D2D5F]">
-              View All →
-            </button>
+            <h4 className="text-sm font-medium text-gray-600">Views</h4>
           </div>
           <div className="mt-4 flex gap-4">
             <QuickAction

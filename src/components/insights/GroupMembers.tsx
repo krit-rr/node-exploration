@@ -8,6 +8,13 @@ interface Contact {
   lastContacted: string;
 }
 
+/** One thing to do with the whole group, in a word or two. */
+export interface GroupAction {
+  label: string;
+  onClick: () => void;
+  busy?: boolean;
+}
+
 interface GroupMembersProps {
   title: string;
   members: Set<string>;
@@ -15,6 +22,8 @@ interface GroupMembersProps {
   icon?: string;
   description?: string;
   onCreateGroup?: (name: string, members: Set<string>) => void;
+  /** Actions on the group itself, so an insight leads somewhere. */
+  actions?: GroupAction[];
 }
 
 export default function GroupMembers({ 
@@ -23,15 +32,21 @@ export default function GroupMembers({
   contacts,
   icon,
   description,
-  onCreateGroup 
+  onCreateGroup,
+  actions = [],
 }: GroupMembersProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const matchingContacts = contacts.filter(c => members.has(c.email));
+  const toggle = () => setIsExpanded(!isExpanded);
   
   return (
-    <button
-      onClick={() => setIsExpanded(!isExpanded)}
-      className={`w-full text-left p-4 bg-[#F4F4FF] rounded-xl hover:bg-[#E4E4FF] transition-all group ${
+    <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={isExpanded}
+      onClick={toggle}
+      onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); } }}
+      className={`w-full text-left p-4 bg-[#F4F4FF] rounded-xl hover:bg-[#E4E4FF] transition-all group cursor-pointer ${
         isExpanded ? 'shadow-md' : ''
       }`}
     >
@@ -54,10 +69,25 @@ export default function GroupMembers({
           </div>
         </div>
         <div className="flex items-center gap-3">
+          {actions.map(action => (
+            <button
+              key={action.label}
+              type="button"
+              disabled={action.busy}
+              onClick={event => { event.stopPropagation(); action.onClick(); }}
+              className="text-xs font-medium px-2.5 py-1 rounded-md border border-[#1E1E3F]/20 bg-white text-[#1E1E3F] hover:bg-[#1E1E3F] hover:text-white transition-colors disabled:opacity-50"
+            >
+              {action.busy ? 'Working…' : action.label}
+            </button>
+          ))}
           {onCreateGroup && (
-            <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[#1E1E3F] text-sm">
+            <button
+              type="button"
+              onClick={event => { event.stopPropagation(); onCreateGroup(title, members); }}
+              className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[#1E1E3F] text-sm"
+            >
               Create Group →
-            </span>
+            </button>
           )}
           <svg 
             className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
@@ -99,6 +129,6 @@ export default function GroupMembers({
           </motion.div>
         )}
       </AnimatePresence>
-    </button>
+    </div>
   );
 }

@@ -1,5 +1,6 @@
 import { Contact } from "@/types";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
+import type { GroupAction } from '@/components/insights/GroupMembers';
 import GroupMembers from '@/components/insights/GroupMembers';
 import { adaptContact } from '@/utils/contactAdapter';
 
@@ -16,9 +17,23 @@ function inferRegionFromDomain(domain: string): string {
 interface SmartInsightsProps {
   contacts: Contact[];
   onGroupCreate: (name: string, members: Set<string>) => void;
+  /** Mark these senders as automated: out of the queue and the score for good. */
+  onMarkAutomated?: (emails: string[]) => Promise<void> | void;
+  /** Push these people out of the queue for a while. */
+  onSnoozeAll?: (emails: string[], days: number) => Promise<void> | void;
 }
 
-export default function SmartInsights({ contacts, onGroupCreate }: SmartInsightsProps) {
+export default function SmartInsights({ contacts, onGroupCreate, onMarkAutomated, onSnoozeAll }: SmartInsightsProps) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const run = async (key: string, work: () => Promise<void> | void) => {
+    if (busy) return;
+    setBusy(key);
+    try {
+      await work();
+    } finally {
+      setBusy(null);
+    }
+  };
 
   // First adapt all contacts for processing
   const adaptedContacts = useMemo(() => {
@@ -221,12 +236,24 @@ export default function SmartInsights({ contacts, onGroupCreate }: SmartInsights
         </div>
       </div>
 
-      {/* No Reply Patterns */}
+      {/* No Reply Patterns: each one leads somewhere */}
       <div className="space-y-4">
         <h3 className="text-lg font-semibold text-[#1E1E3F]">Communication Gaps</h3>
         <div className="space-y-3">
-          {Object.entries(insights.noReplyGroups).map(([key, group]) => (
-            group.members.size > 0 && (
+          {Object.entries(insights.noReplyGroups).map(([key, group]) => {
+            if (group.members.size === 0) return null;
+            const emails = Array.from(group.members);
+            const actions: GroupAction[] = [];
+            if (onMarkAutomated && (key === 'promotional' || key === 'noResponse')) {
+              actions.push({ label: 'Mark as automated', busy: busy === `${key}-spam`, onClick: () => run(`${key}-spam`, () => onMarkAutomated(emails)) });
+            }
+            if (onSnoozeAll && key === 'noResponse') {
+              actions.push({ label: 'Snooze 90 days', busy: busy === `${key}-snooze`, onClick: () => run(`${key}-snooze`, () => onSnoozeAll(emails, 90)) });
+            }
+            if (onSnoozeAll && key === 'inactive') {
+              actions.push({ label: 'Snooze 30 days', busy: busy === `${key}-snooze`, onClick: () => run(`${key}-snooze`, () => onSnoozeAll(emails, 30)) });
+            }
+            return (
               <GroupMembers
                 key={key}
                 title={group.label}
@@ -235,9 +262,10 @@ export default function SmartInsights({ contacts, onGroupCreate }: SmartInsights
                 icon={group.icon}
                 description={group.description}
                 onCreateGroup={onGroupCreate}
+                actions={actions}
               />
-            )
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
