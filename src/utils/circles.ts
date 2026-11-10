@@ -108,7 +108,7 @@ export function nameCircle(members: string[], byEmail: Map<string, Contact>): st
 export function suggestCircles(
   contacts: Contact[],
   existingGroups: { members: string[] }[],
-  { limit = 4, now = Date.now(), dismissed = [] }: { limit?: number; now?: number; dismissed?: string[][] } = {}
+  { limit = 4, now = Date.now(), dismissed = [], includeExisting = false }: { limit?: number; now?: number; dismissed?: string[][]; includeExisting?: boolean } = {}
 ): CircleSuggestion[] {
   // Every address a contact answers to maps to that contact, so a merged
   // duplicate's old address lands in the same circle as its row.
@@ -177,8 +177,8 @@ export function suggestCircles(
   const gone = dismissed.map(members => new Set(members.map(m => m.toLowerCase())));
   return kept
     .filter(b => b.messages >= MIN_MESSAGES && b.weight >= MIN_WEIGHT)
-    // Already a group (or a part of one): nothing to suggest.
-    .filter(b => !existing.some(g => containedIn(b.set, g) >= EXISTING_OVERLAP))
+    // Already a group (or a part of one): nothing to suggest, unless the caller wants to compare.
+    .filter(b => includeExisting || !existing.some(g => containedIn(b.set, g) >= EXISTING_OVERLAP))
     // Dismissed before, give or take a member: still dismissed, and the next circle takes the slot.
     .filter(b => !gone.some(d => jaccard(d, b.set) >= DISMISSED_OVERLAP))
     .sort((a, b) => b.weight - a.weight)
@@ -196,6 +196,54 @@ export function suggestCircles(
         lastSeen: new Date(b.lastSeen).toISOString(),
       };
     });
+}
+
+export interface CircleUpdate {
+  groupId: string;
+  groupName: string;
+  /** The group's members today, lower-cased. */
+  members: string[];
+  /** People who have been on the group's emails lately but are not in the group. */
+  newcomers: string[];
+  /** When the group's people were last on one message together. */
+  lastSeen: string;
+}
+
+/** A circle has to overlap a group this much to be that group's circle. */
+const UPDATE_OVERLAP = 0.5;
+/** Newcomers count when the circle was together within this many days. */
+const UPDATE_WINDOW_DAYS = 30;
+
+/**
+ * Circles are alive; saved views are not. For each group the user keeps,
+ * the circle that matches it now may hold people who were not in the group
+ * when it was made: they joined the emails since. Those are offered, so a
+ * group follows the mail instead of freezing the day it was created.
+ */
+export function circleUpdates(
+  contacts: Contact[],
+  groups: { id: string; name: string; members: string[] }[],
+  { now = Date.now() }: { now?: number } = {}
+): CircleUpdate[] {
+  if (groups.length === 0) return [];
+  const circles = suggestCircles(contacts, [], { limit: 50, now, includeExisting: true });
+  const updates: CircleUpdate[] = [];
+  for (const group of groups) {
+    const members = new Set(group.members.map(m => m.toLowerCase()));
+    if (members.size === 0) continue;
+    let best: { circle: CircleSuggestion; overlap: number } | null = null;
+    for (const circle of circles) {
+      const overlap = jaccard(members, new Set(circle.members));
+      if (overlap >= UPDATE_OVERLAP && (!best || overlap > best.overlap)) best = { circle, overlap };
+    }
+    if (!best) continue;
+    const recent = now - new Date(best.circle.lastSeen).getTime() <= UPDATE_WINDOW_DAYS * DAY_MS;
+    if (!recent) continue;
+    const newcomers = best.circle.members.filter(m => !members.has(m));
+    if (newcomers.length === 0) continue;
+    updates.push({ groupId: group.id, groupName: group.name, members: Array.from(members), newcomers, lastSeen: best.circle.lastSeen });
+  }
+  return updates.sort((a, b) => b.newcomers.length - a.newcomers.length || a.groupName.localeCompare(b.groupName));
 }
 
 // Dismissals are per user and per browser: a circle the user said is not a
