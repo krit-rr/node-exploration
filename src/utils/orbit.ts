@@ -22,6 +22,7 @@ export const LAYER_NAMES = ['closest 5', '15', '50', '150', 'beyond 150'] as con
 /** Outer edge of each layer as a share of the map radius; the fifth is the outer band. */
 export const RING_EDGE = [0.22, 0.45, 0.7, 0.95, 1.08] as const;
 const RING_INNER = 0.06;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const RECENCY_HALF_LIFE_DAYS = 90;
 export const CONSUMER_DOMAINS = new Set([
@@ -209,6 +210,55 @@ export function contactsAsOf(contacts: Contact[], at: number): Replay {
     });
   }
   return { contacts: projected, beyondRecord };
+}
+
+/**
+ * Who a new intent would push out of a full inner ring: the weakest person
+ * already intended for it, by closeness. Only the inner two rings are
+ * scarce; the 50 and the 150 are roomy. Saramäki et al. saw people make
+ * this trade without noticing; here it is said out loud.
+ */
+export function displacedByIntent(layout: OrbitLayout, email: string, layer: 1 | 2 | 3 | 4): OrbitPoint | null {
+  if (layer > 2) return null;
+  const wanted = email.toLowerCase();
+  const members = layout.points.filter(p => p.email !== wanted && intentOf(p.contact) === layer);
+  if (members.length < LAYER_CAPACITY[layer - 1]) return null;
+  return members.reduce((weakest, p) => (p.closeness < weakest.closeness ? p : weakest));
+}
+
+export interface OrbitMove {
+  email: string;
+  from: OrbitLayer;
+  to: OrbitLayer;
+  /** Where activity had them `days` ago, for a trail on the map. */
+  fromDistance: number;
+  angle: number;
+}
+
+/**
+ * The ring moves of the last `days`, by activity alone: who slipped out, who
+ * moved in, who arrived. Both layouts run in replay mode so a priority mark
+ * cannot read as a move; someone beyond the record a week ago is simply not
+ * compared.
+ */
+export function orbitMoves(contacts: Contact[], { days = 7, now = Date.now() }: { days?: number; now?: number } = {}): OrbitMove[] {
+  const then = now - days * DAY_MS;
+  const before = new Map(computeOrbit(contactsAsOf(contacts, then).contacts, { now: then, replay: true }).points.map(p => [p.email, p]));
+  const moves: OrbitMove[] = [];
+  for (const point of computeOrbit(contacts, { now, replay: true }).points) {
+    const prior = before.get(point.email);
+    if (!prior) {
+      // Not on the map then: new this week, arriving from beyond, unless the
+      // row's history is simply too short to say where they were.
+      if (point.layer === 5 || point.assessment.neverTouched || (point.contact.interactions?.length ?? 0) >= MAX_INTERACTIONS) continue;
+      moves.push({ email: point.email, from: 5, to: point.layer, fromDistance: RING_EDGE[4], angle: point.angle });
+      continue;
+    }
+    if (prior.layer === point.layer) continue;
+    moves.push({ email: point.email, from: prior.layer, to: point.layer, fromDistance: prior.distance, angle: point.angle });
+  }
+  // Slipping out first, the biggest jumps first.
+  return moves.sort((a, b) => (b.to - b.from) - (a.to - a.from) || a.email.localeCompare(b.email));
 }
 
 export function computeOrbit(
