@@ -6,6 +6,7 @@ import NetworkScore from '@/components/insights/NetworkScore';
 import TimeframeSelector from '@/components/insights/TimeframeSelector';
 import RelationshipTimeline from '@/components/insights/RelationshipTimeline';
 import SmartInsights from '@/components/insights/SmartInsights';
+import WhereAndWhen from '@/components/insights/WhereAndWhen';
 import { persistContacts, useContacts, type ContactsData } from '@/hooks/useContacts';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
@@ -149,10 +150,13 @@ export default function InsightsPage() {
 
               <ErrorBoundary label={currentView === 'organize' ? 'SmartInsights' : 'RelationshipTimeline'}>
                 {currentView === 'organize' ? (
-                  <SmartInsights
-                    contacts={contacts}
-                    onGroupCreate={createGroupFromInsight}
-                  />
+                  <div className="space-y-8">
+                    <WhereAndWhen contacts={contacts} onGroupCreate={createGroupFromInsight} />
+                    <SmartInsights
+                      contacts={contacts}
+                      onGroupCreate={createGroupFromInsight}
+                    />
+                  </div>
                 ) : (
                   <RelationshipTimeline
                     contacts={contacts}
