@@ -352,6 +352,17 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn, o
                 {contact.memory ? (
                   <>
                     {contact.memory.summary && <p>{contact.memory.summary}</p>}
+                    {contact.memory.changes.length > 0 && (
+                      <ul className="space-y-1">
+                        {contact.memory.changes.map((change, index) => (
+                          <li key={`${change.date}-${index}`} className="flex items-baseline gap-2 text-sm">
+                            <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-800">Changed</span>
+                            <span className="flex-1 min-w-0">{change.text}</span>
+                            <span className="text-xs text-gray-400 flex-none">{safeFormatDate(change.date, 'MMM d, yyyy', '')}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     {contact.memory.openLoops.length > 0 && (
                       <ul className="space-y-1">
                         {contact.memory.openLoops.map((loop, index) => (
@@ -365,7 +376,7 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn, o
                         ))}
                       </ul>
                     )}
-                    {!contact.memory.summary && contact.memory.openLoops.length === 0 && (
+                    {!contact.memory.summary && contact.memory.openLoops.length === 0 && contact.memory.changes.length === 0 && (
                       <p className="text-gray-500">Nothing worth remembering in the recent emails.</p>
                     )}
                     {contact.memory.updatedAt && (

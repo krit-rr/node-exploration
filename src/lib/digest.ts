@@ -2,6 +2,7 @@ import type { Contact } from '@/types';
 import { cadenceStatus, computeReconnectQueue, type ReconnectCandidate } from '@/utils/reconnect';
 import { firstName } from '@/utils/draft';
 import { digestSubject } from '@/utils/digestSubject';
+import { anniversaryLine, onThisDay } from '@/utils/onThisDay';
 
 /**
  * The Monday digest: the going-cold five, one line of context each, in
@@ -42,10 +43,12 @@ export function mailtoHref(email: string): string | null {
   return /^[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email) ? `mailto:${encodeURIComponent(email)}` : null;
 }
 
+/** The open loop, or what changed since you last spoke: the line that makes the next message specific. */
 function loopLine(candidate: ReconnectCandidate): string | null {
   const loop = candidate.contact.memory?.openLoops[0];
-  if (!loop) return null;
-  return `${loop.who === 'you' ? 'You promised' : 'They promised'}: ${loop.text}`;
+  if (loop) return `${loop.who === 'you' ? 'You promised' : 'They promised'}: ${loop.text}`;
+  const change = candidate.contact.memory?.changes[0];
+  return change ? `Since you last spoke: ${change.text}` : null;
 }
 
 export function buildDigest({
@@ -53,13 +56,16 @@ export function buildDigest({
   priorityEmails,
   userName,
   appUrl,
+  now = Date.now(),
 }: {
   contacts: Contact[];
   priorityEmails?: Set<string>;
   userName?: string | null;
   appUrl?: string | null;
+  now?: number;
 }): Digest {
-  const queue = computeReconnectQueue(contacts, { limit: QUEUE_LIMIT, priorityEmails });
+  const queue = computeReconnectQueue(contacts, { limit: QUEUE_LIMIT, priorityEmails, now });
+  const anniversaries = onThisDay(contacts, now).slice(0, 3);
   const count = queue.length;
   const shown = queue.slice(0, DIGEST_SIZE);
   const first = firstName(userName ?? '', '');
@@ -100,6 +106,9 @@ export function buildDigest({
     }
     if (link) textLines.push(`Draft an opener for any of them in Node: ${link}`, '');
   }
+  if (anniversaries.length > 0) {
+    textLines.push('On this day:', ...anniversaries.map(a => `  ${anniversaryLine(a)}`), '');
+  }
   textLines.push('You get this every Monday because you asked for it. Turn it off on the Insights page.');
 
   const html =
@@ -111,6 +120,9 @@ export function buildDigest({
       : `<p style="color:#374151;">${escapeHtml(intro)}</p>` +
         `<ul style="list-style:none;padding:0;margin:16px 0;">${htmlItems.join('')}</ul>` +
         (link ? `<p style="font-size:13px;"><a href="${escapeHtml(link)}" style="color:#4B4BA6;">Draft an opener for any of them in Node</a></p>` : '')) +
+    (anniversaries.length > 0
+      ? `<p style="margin:16px 0 0 0;color:#374151;font-size:13px;"><span style="font-weight:600;color:#1E1E3F;">On this day.</span> ${anniversaries.map(a => escapeHtml(anniversaryLine(a))).join(' ')}</p>`
+      : '') +
     `<p style="margin:20px 0 0 0;color:#9CA3AF;font-size:12px;">You get this every Monday because you asked for it. Turn it off on the Insights page.</p>` +
     `</div></body></html>`;
 

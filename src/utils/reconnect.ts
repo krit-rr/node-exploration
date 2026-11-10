@@ -156,9 +156,9 @@ export function computeReconnectQueue(
     coldDays = DEFAULT_COLD_DAYS,
     limit = 5,
     priorityEmails,
-  }: { coldDays?: number; limit?: number; priorityEmails?: Set<string> } = {}
+    now = Date.now(),
+  }: { coldDays?: number; limit?: number; priorityEmails?: Set<string>; now?: number } = {}
 ): ReconnectCandidate[] {
-  const now = Date.now();
   const assessments = assessCadence(contacts, coldDays, now);
   const candidates: ReconnectCandidate[] = [];
 

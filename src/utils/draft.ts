@@ -68,6 +68,11 @@ export function sinceWords(days: number): string {
   return days === 1 ? 'a day' : 'less than a day';
 }
 
+/** A change is read with the contact as subject ("they moved to Berlin"); said to them it is "you moved to Berlin". */
+export function secondPerson(text: string): string {
+  return text.replace(/^they are\b/i, 'you are').replace(/^they\b/i, 'you').replace(/^their\b/i, 'your').replace(/^them\b/i, 'you');
+}
+
 /** "Re: " once, never "Re: Re:"; "Catching up" when there is no subject to pick up. */
 export function replySubject(subject: string | undefined): string {
   if (!subject?.trim()) return 'Catching up';
@@ -96,6 +101,9 @@ export function draftFacts(ctx: DraftContext): string[] {
   for (const loop of contact.memory?.openLoops ?? []) {
     facts.push(`Open loop (${loop.date}): ${loop.who === 'you' ? 'you promised to' : 'they promised to'} ${cleanLine(loop.text, 140)}`);
   }
+  for (const change of contact.memory?.changes ?? []) {
+    facts.push(`Changed lately (${change.date}): ${cleanLine(change.text, 120)}`);
+  }
   return facts;
 }
 
@@ -106,6 +114,7 @@ export function draftFromTemplate(ctx: DraftContext, reason: 'no-model' | 'model
   const me = firstName(ctx.userName, '');
   const since = sinceWords(ctx.daysSince);
   const loop = contact.memory?.openLoops[0];
+  const change = contact.memory?.changes[0];
   const subject = lastSubject(contact);
   const met = contact.metAt ? cleanLine(contact.metAt, 80) : '';
 
@@ -114,6 +123,8 @@ export function draftFromTemplate(ctx: DraftContext, reason: 'no-model' | 'model
     opener = `I said I would ${cleanLine(loop.text, 140)}, and I have not forgotten.`;
   } else if (loop?.who === 'them') {
     opener = `You mentioned you would ${cleanLine(loop.text, 140)}. No rush at all, I just wanted to check whether that is still on your plate.`;
+  } else if (change) {
+    opener = `I saw that ${secondPerson(cleanLine(change.text, 120))}, and did not want to let it pass without saying hello.`;
   } else if (subject) {
     opener = `It has been ${since} since we last traded notes about "${cleanLine(subject, 80)}", and I did not want to let it go longer.`;
   } else if (ctx.neverTouched && met) {

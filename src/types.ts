@@ -60,11 +60,21 @@ export interface OpenLoop {
   date: string;
 }
 
+/** Something that changed for the contact or the relationship, read from the mail: a new role, a move, a launch. */
+export interface MemoryChange {
+  /** One short clause with the contact as subject: "they moved to Berlin", "their company announced a raise". */
+  text: string;
+  /** The date (YYYY-MM-DD) of the message it was read from. */
+  date: string;
+}
+
 /** The notes nobody keeps, read out of stored subjects and previews by the model. */
 export interface ContactMemory {
   /** At most two short sentences: what this is about, what changed lately. */
   summary: string;
   openLoops: OpenLoop[];
+  /** What changed since you last spoke, newest first, at most three. */
+  changes: MemoryChange[];
   /** Hash of the interactions it was read from; unchanged history never costs another model call. */
   sourceHash: string;
   updatedAt: string;
