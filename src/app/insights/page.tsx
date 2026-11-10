@@ -18,6 +18,7 @@ import IntroSuggestions from '@/components/IntroSuggestions';
 import DigestSettings from '@/components/DigestSettings';
 import HistoryReach from '@/components/HistoryReach';
 import AskNetwork from '@/components/AskNetwork';
+import OnThisDay from '@/components/OnThisDay';
 import RehearsalCard from '@/components/RehearsalCard';
 import toast from 'react-hot-toast';
 
@@ -115,6 +116,10 @@ export default function InsightsPage() {
                   priorityEmails={priorityEmails}
                   compact
                 />
+              </ErrorBoundary>
+
+              <ErrorBoundary label="OnThisDay">
+                <OnThisDay contacts={contacts} />
               </ErrorBoundary>
 
               <ErrorBoundary label="AskNetwork">

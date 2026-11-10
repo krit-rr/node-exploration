@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from './supabaseAdmin';
-import { Contact, ContactMemory, OpenLoop, RehearsalEntry } from '@/types';
+import { Contact, ContactMemory, MemoryChange, OpenLoop, RehearsalEntry } from '@/types';
 import { MAX_INTERACTIONS } from '@/utils/interactions';
 
 /**
@@ -108,7 +108,13 @@ function isOpenLoop(value: unknown): value is OpenLoop {
   return typeof loop.text === 'string' && (loop.who === 'you' || loop.who === 'them') && typeof loop.date === 'string';
 }
 
-/** A stored memory, or undefined when the column is empty or malformed; loops that do not fit the shape are dropped. */
+function isMemoryChange(value: unknown): value is MemoryChange {
+  if (!value || typeof value !== 'object') return false;
+  const change = value as Partial<MemoryChange>;
+  return typeof change.text === 'string' && typeof change.date === 'string';
+}
+
+/** A stored memory, or undefined when the column is empty or malformed; loops and changes that do not fit the shape are dropped. */
 function asMemory(value: unknown): ContactMemory | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const memory = value as Partial<ContactMemory>;
@@ -116,6 +122,7 @@ function asMemory(value: unknown): ContactMemory | undefined {
   return {
     summary: typeof memory.summary === 'string' ? memory.summary : '',
     openLoops: memory.openLoops.filter(isOpenLoop),
+    changes: Array.isArray(memory.changes) ? memory.changes.filter(isMemoryChange) : [],
     sourceHash: memory.sourceHash,
     updatedAt: typeof memory.updatedAt === 'string' ? memory.updatedAt : '',
   };

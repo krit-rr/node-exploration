@@ -210,7 +210,7 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
               {candidate.contact.metAt && (
                 <p className="text-xs text-gray-400 truncate">Met at {candidate.contact.metAt}</p>
               )}
-              {candidate.contact.memory?.openLoops[0] && (
+              {candidate.contact.memory?.openLoops[0] ? (
                 <p
                   className="text-xs text-[#1E1E3F]/80 truncate"
                   title={`${candidate.contact.memory.openLoops[0].who === 'you' ? 'You' : 'They'} promised to ${candidate.contact.memory.openLoops[0].text}, read from your emails`}
@@ -218,7 +218,15 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
                   {candidate.contact.memory.openLoops[0].who === 'you' ? 'You promised:' : 'They promised:'} {candidate.contact.memory.openLoops[0].text}
                   <span className="text-gray-400"> &middot; {safeFormatDate(candidate.contact.memory.openLoops[0].date, 'MMM d', '')}</span>
                 </p>
-              )}
+              ) : candidate.contact.memory?.changes[0] ? (
+                <p
+                  className="text-xs text-[#1E1E3F]/80 truncate"
+                  title={`Since you last spoke: ${candidate.contact.memory.changes[0].text}, read from your emails`}
+                >
+                  Since you last spoke: {candidate.contact.memory.changes[0].text}
+                  <span className="text-gray-400"> &middot; {safeFormatDate(candidate.contact.memory.changes[0].date, 'MMM d', '')}</span>
+                </p>
+              ) : null}
               {draft?.email === email ? (
                 <div className="flex flex-col gap-1.5 mt-auto pt-1">
                   <input
