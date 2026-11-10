@@ -103,7 +103,7 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
             <div key={email} className="border border-gray-100 rounded-lg p-3 flex flex-col gap-1.5 min-w-0">
               <div className="min-w-0">
                 <p className="font-medium text-[#1E1E3F] truncate">
-                  {candidate.priority && <span className="mr-1 text-[#1E1E3F]/60" title="Priority: tagged key-contact or in a group">✦</span>}
+                  {candidate.priority && <span className="mr-1 text-[#1E1E3F]/60" title="Priority: tagged key-contact, in a group, or placed in your inner orbit">✦</span>}
                   {candidate.contact.name}
                 </p>
                 <p className="text-xs text-gray-500 truncate">

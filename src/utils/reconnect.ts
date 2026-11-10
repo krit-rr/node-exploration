@@ -52,11 +52,13 @@ export const PRIORITY_TAG = 'key-contact';
 
 /**
  * Priority means the user deliberately marked the person out: tagged
- * key-contact, or put in a group. `priorityEmails` carries the group
- * membership, which lives outside the contact row.
+ * key-contact, put in a group, or dragged into the inner two rings of the
+ * orbit map. `priorityEmails` carries the group membership, which lives
+ * outside the contact row.
  */
 export function isPriorityContact(contact: Contact, priorityEmails?: Set<string>): boolean {
   if ((contact.tags ?? []).some(t => t.toLowerCase() === PRIORITY_TAG)) return true;
+  if (contact.intendedLayer === 1 || contact.intendedLayer === 2) return true;
   return Boolean(priorityEmails?.has(contact.email.toLowerCase()));
 }
 
@@ -176,8 +178,8 @@ export function computeReconnectQueue(
     });
   }
 
-  // Priority relationships first (key-contact or in a group), then the
-  // furthest past their own rhythm, then the longest silence.
+  // Priority relationships first (key-contact, group, or inner orbit), then
+  // the furthest past their own rhythm, then the longest silence.
   candidates.sort((a, b) => {
     if (a.priority !== b.priority) return a.priority ? -1 : 1;
     if (b.overdueZ !== a.overdueZ) return b.overdueZ - a.overdueZ;

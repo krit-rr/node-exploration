@@ -31,6 +31,7 @@ type ContactRow = {
   introduced_by: string | null;
   alt_emails?: unknown;
   created_at?: string;
+  intended_layer?: number | null;
 };
 
 // Postgres error codes for "relation does not exist" / RLS-off states we
@@ -50,7 +51,7 @@ const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 // database has them, PostgREST rejects statements naming those columns
 // (PGRST204 / 42703); strip them and retry so core persistence keeps
 // working pre-migration.
-const NEW_COLUMNS = ['met_at', 'snoozed_until', 'introduced_by', 'alt_emails'] as const;
+const NEW_COLUMNS = ['met_at', 'snoozed_until', 'introduced_by', 'alt_emails', 'intended_layer'] as const;
 
 function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
@@ -123,6 +124,7 @@ export function rowToContact(row: ContactRow): Contact {
     snoozedUntil: row.snoozed_until ?? undefined,
     introducedBy: row.introduced_by ?? undefined,
     createdAt: row.created_at ?? undefined,
+    intendedLayer: typeof row.intended_layer === 'number' ? row.intended_layer : undefined,
     ...(asArray(row.alt_emails).length > 0
       ? { altEmails: asArray(row.alt_emails).map(String) }
       : {}),
@@ -510,6 +512,11 @@ export async function mergeContacts(
     met_at: primaryRow.met_at ?? duplicateRow.met_at,
     introduced_by: primaryRow.introduced_by ?? duplicateRow.introduced_by,
     alt_emails: altEmails,
+    // Columns from later migrations ride along only when a row carries a
+    // value, so a database without them keeps merging.
+    ...(primaryRow.intended_layer ?? duplicateRow.intended_layer ?? null) !== null
+      ? { intended_layer: primaryRow.intended_layer ?? duplicateRow.intended_layer }
+      : {},
     updated_at: new Date().toISOString(),
   };
 
@@ -707,6 +714,31 @@ export async function setSnooze(
     throw new Error(`Failed to snooze contact: ${error.message}`);
   }
   return { available: true };
+}
+
+/**
+ * Where the user wants a contact on the orbit map (1 to 4), or null to let
+ * activity place them again. Only the orbit route writes this column, so a
+ * stale client cannot clear it by saving an older copy of the contact.
+ */
+export async function setIntendedLayer(
+  owner: string,
+  email: string,
+  layer: number | null
+): Promise<{ available: boolean; found: boolean }> {
+  const { data, error } = await getSupabaseAdmin()
+    .from('contacts')
+    .update({ intended_layer: layer, updated_at: new Date().toISOString() })
+    .eq('owner_email', owner)
+    .eq('email', email.toLowerCase())
+    .select('email');
+  if (error) {
+    if (isMissingStore(error) || isMissingColumn(error)) return { available: false, found: false };
+    throw new Error(`Failed to set orbit: ${error.message}`);
+  }
+  // A contact the store does not hold (cache-only, or an address folded into
+  // another row) matches nothing; say so instead of claiming it was saved.
+  return { available: true, found: (data ?? []).length > 0 };
 }
 
 /** Set/clear spam flags for a batch of emails. */

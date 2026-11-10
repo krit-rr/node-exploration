@@ -10,6 +10,7 @@ import { ReactNode } from 'react';
 const navigation = [
   { name: 'Overview', href: '/overview', icon: 'Home' },
   { name: 'Contacts', href: '/contacts', icon: 'Users' },
+  { name: 'Orbit', href: '/orbit', icon: 'Globe' },
   { name: 'Insights', href: '/insights', icon: 'LineChart' },
 ];
 

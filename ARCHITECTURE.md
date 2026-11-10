@@ -44,7 +44,7 @@ All tables: RLS on, no policies, service-role access only. Keyed by `owner_email
 
 | Table | Key | Holds |
 |---|---|---|
-| `contacts` | `(owner_email, email)` | name, company, industry, `last_contacted`, `interactions` jsonb (dated, with channel, subject, snippet), `custom_fields`, `tags`, `notes`, `is_spam`, `met_at`, `snoozed_until`, `introduced_by`, source |
+| `contacts` | `(owner_email, email)` | name, company, industry, `last_contacted`, `interactions` jsonb (dated, with channel, subject, snippet), `custom_fields`, `tags`, `notes`, `is_spam`, `met_at`, `snoozed_until`, `introduced_by`, `intended_layer` (where the user wants them on the orbit map, 1 to 4), source |
 | `groups` | `(owner_email, id)` | name, `members` jsonb (email list); client-generated ids |
 | `views` | `(owner_email, id)` | name, `config` jsonb (search, filter, sort) |
 | `contact_embeddings` / `interaction_embeddings` | owner + content hash | pgvector embeddings for semantic search; hash-gated so unchanged content is never re-embedded |
@@ -63,6 +63,7 @@ Migrations live in `supabase/migrations/` and are applied via the Supabase SQL e
 | `/api/contacts/enrich` | POST | enrich stored contacts missing a company, persist | session; 4/min |
 | `/api/contacts/touch` | POST | log an email, call, meeting or other outreach; bumps recency | session |
 | `/api/contacts/reconnect` | POST | snooze a contact out of the queue for N days | session |
+| `/api/contacts/orbit` | POST | set or clear where a contact should sit on the orbit map (1 to 4) | session; 60/min |
 | `/api/contacts/tags` | POST | add one tag to up to 500 contacts | session |
 | `/api/contacts/spam` | POST | persist cleanup-assistant decisions | session |
 | `/api/groups`, `/api/views` | GET, PUT | list and replace-set, client-generated ids | session; PUT 30/min |
@@ -74,6 +75,7 @@ Error responses are generic; details stay in server logs.
 ## Frontend structure
 
 - `src/app/contacts/page.tsx`: the core surface. `useContacts()` (single query key, network-first), the Going-cold `ReconnectRail`, filter chips (quick filters, groups, tags, saved views), the spreadsheet `ContactTable` with selection and bulk tagging, quick-add, import, export, cleanup assistant.
+- `src/app/orbit/page.tsx`, `src/utils/orbit.ts`, `src/components/OrbitMap.tsx`: the orbit map. Every real contact is a point around the user; closeness (recency with a 90-day half-life and none for a contact never touched, frequency over the last year, depth of history, a nudge for the key-contact tag or a group but never for orbit intent, so a drag cannot move the activity dot) ranks them into rings of 5, 15, 50 and 150 with a faint band beyond, colleagues share a wedge, and going-cold contacts are coloured from the cadence assessment. Dragging a dot to a ring stores `intended_layer`; a hollow marker shows it when it differs from the ring activity puts them in, and the inner two rings count as priority in the queue.
 - `src/app/insights/page.tsx`: compact rail, `NetworkScore` (priority-aware, computed), `SmartInsights` groupings, activity timeline. Everything memoized; widgets wrapped in error boundaries.
 - `src/hooks/useContacts.ts`: the one contacts query plus `persistContacts` and `syncContacts`. All cache writers produce the same shape.
 - `src/utils/reconnect.ts` and `src/utils/cadence.ts`: the going-cold queue, judged per relationship. Touches within a week of each other are one conversation (a thread is not a rhythm). A pair with three or more past gaps between conversations is measured against its own rhythm (a log-normal over those gaps); with less history it is measured against the user's typical gap (one value per contact, pooled), floored at 45 days. A contact enters the queue when the silence is more likely than not to be past that typical gap, and never under two weeks of silence. Spam and no-reply excluded, snoozes respected, priority contacts first, then the furthest past their own rhythm (in spreads, so a long silence against a loose rhythm still outranks a short one against a tight rhythm). Priority means tagged `key-contact` or in a group (`isPriorityContact`); other tags do not reorder the queue. A contact with no recorded touch ages from `createdAt` instead of being skipped.
