@@ -23,10 +23,16 @@ export const RING_EDGE = [0.22, 0.45, 0.7, 0.95, 1.08] as const;
 const RING_INNER = 0.06;
 
 const RECENCY_HALF_LIFE_DAYS = 90;
-const CONSUMER_DOMAINS = new Set([
+export const CONSUMER_DOMAINS = new Set([
   'gmail.com', 'googlemail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'live.com',
   'icloud.com', 'me.com', 'aol.com', 'proton.me', 'protonmail.com',
 ]);
+
+/** The domain of a work address, or null for a consumer mailbox. */
+export function workDomain(email: string): string | null {
+  const domain = email.split('@')[1]?.toLowerCase() ?? '';
+  return domain && !CONSUMER_DOMAINS.has(domain) ? domain : null;
+}
 
 export interface OrbitPoint {
   contact: Contact;
@@ -53,7 +59,8 @@ export interface OrbitLayout {
   total: number;
 }
 
-function hash(text: string): number {
+/** A small stable hash for angles and keys (djb2). */
+export function hash(text: string): number {
   let h = 5381;
   for (const ch of text) h = ((h << 5) + h + ch.charCodeAt(0)) | 0;
   return h >>> 0;
@@ -63,8 +70,8 @@ function hash(text: string): number {
 export function clusterKey(contact: Contact): string {
   const company = contact.company?.trim().toLowerCase();
   if (company) return `company:${company}`;
-  const domain = contact.email.split('@')[1]?.toLowerCase() ?? '';
-  if (domain && !CONSUMER_DOMAINS.has(domain)) return `domain:${domain}`;
+  const domain = workDomain(contact.email);
+  if (domain) return `domain:${domain}`;
   return `person:${contact.email.toLowerCase()}`;
 }
 
@@ -86,7 +93,7 @@ export function closenessScore(assessment: CadenceAssessment, priority: boolean)
  * only. Orbit intent is deliberately left out, so dragging someone inward
  * never moves the dot that shows where activity puts them.
  */
-function rankPriority(contact: Contact, priorityEmails?: Set<string>): boolean {
+export function rankPriority(contact: Contact, priorityEmails?: Set<string>): boolean {
   if ((contact.tags ?? []).some(t => t.toLowerCase() === PRIORITY_TAG)) return true;
   return Boolean(priorityEmails?.has(contact.email.toLowerCase()));
 }
