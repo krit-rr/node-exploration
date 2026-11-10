@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from './supabaseAdmin';
-import { Contact, ContactMemory } from '@/types';
+import { Contact, ContactMemory, OpenLoop } from '@/types';
 
 /**
  * Server-side contact repository (Supabase, service-role only).
@@ -74,6 +74,14 @@ const latestIso = (a: string | null, b: string | null): string | null => {
   return new Date(a) > new Date(b) ? a : b;
 };
 
+// A touch cannot be in the future; a typo in an imported date must not mask
+// every real touch after it. Anything past tomorrow is treated as unknown.
+const saneTouch = (iso: string | null | undefined): string | null => {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return !isNaN(t) && t <= Date.now() + 24 * 60 * 60 * 1000 ? iso : null;
+};
+
 type Interaction = NonNullable<Contact['interactions']>[number];
 
 // Same cap logTouch uses; a merged history must not grow a row unboundedly.
@@ -94,14 +102,20 @@ function combineInteractions(interactions: Interaction[]): Interaction[] {
   return combined.slice(0, MAX_INTERACTIONS);
 }
 
-/** A stored memory, or undefined when the column is empty or malformed. */
+function isOpenLoop(value: unknown): value is OpenLoop {
+  if (!value || typeof value !== 'object') return false;
+  const loop = value as Partial<OpenLoop>;
+  return typeof loop.text === 'string' && (loop.who === 'you' || loop.who === 'them') && typeof loop.date === 'string';
+}
+
+/** A stored memory, or undefined when the column is empty or malformed; loops that do not fit the shape are dropped. */
 function asMemory(value: unknown): ContactMemory | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const memory = value as Partial<ContactMemory>;
   if (typeof memory.sourceHash !== 'string' || !Array.isArray(memory.openLoops)) return undefined;
   return {
     summary: typeof memory.summary === 'string' ? memory.summary : '',
-    openLoops: memory.openLoops,
+    openLoops: memory.openLoops.filter(isOpenLoop),
     sourceHash: memory.sourceHash,
     updatedAt: typeof memory.updatedAt === 'string' ? memory.updatedAt : '',
   };
@@ -233,7 +247,7 @@ export async function mergeProviderContacts(
       name: prior?.name || direct.name || email,
       company: direct.company ?? prior?.company ?? null,
       industry: direct.industry ?? prior?.industry ?? null,
-      last_contacted: latestIso(incomingLatest, prior?.last_contacted ?? null),
+      last_contacted: latestIso(saneTouch(incomingLatest), saneTouch(prior?.last_contacted)),
       interactions: combineInteractions([
         ...group.flatMap((c) => c.interactions ?? []),
         ...(asArray(prior?.interactions) as Interaction[]),
@@ -519,6 +533,11 @@ export async function mergeContacts(
     met_at: primaryRow.met_at ?? duplicateRow.met_at,
     introduced_by: primaryRow.introduced_by ?? duplicateRow.introduced_by,
     alt_emails: altEmails,
+    // Columns from later migrations ride along only when a row carries a
+    // value, so a database without them keeps merging.
+    ...(primaryRow.intended_layer ?? duplicateRow.intended_layer ?? null) !== null
+      ? { intended_layer: primaryRow.intended_layer ?? duplicateRow.intended_layer }
+      : {},
     updated_at: new Date().toISOString(),
   };
 
@@ -763,17 +782,20 @@ export async function setIntendedLayer(
   owner: string,
   email: string,
   layer: number | null
-): Promise<{ available: boolean }> {
-  const { error } = await getSupabaseAdmin()
+): Promise<{ available: boolean; found: boolean }> {
+  const { data, error } = await getSupabaseAdmin()
     .from('contacts')
     .update({ intended_layer: layer, updated_at: new Date().toISOString() })
     .eq('owner_email', owner)
-    .eq('email', email.toLowerCase());
+    .eq('email', email.toLowerCase())
+    .select('email');
   if (error) {
-    if (isMissingStore(error) || isMissingColumn(error)) return { available: false };
+    if (isMissingStore(error) || isMissingColumn(error)) return { available: false, found: false };
     throw new Error(`Failed to set orbit: ${error.message}`);
   }
-  return { available: true };
+  // A contact the store does not hold (cache-only, or an address folded into
+  // another row) matches nothing; say so instead of claiming it was saved.
+  return { available: true, found: (data ?? []).length > 0 };
 }
 
 /** Set/clear spam flags for a batch of emails. */

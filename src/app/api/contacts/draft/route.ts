@@ -32,21 +32,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid request data' }, { status: 400 });
     }
     const stored = await listContactsByEmail(owner, [email]);
+    if (!stored.available) {
+      // No store yet: the rail assembles the template itself from what it already knows.
+      return NextResponse.json({ error: 'Contacts are not stored yet' }, { status: 503 });
+    }
     const contact = stored.contacts[0];
     if (!contact) {
       return NextResponse.json({ error: 'Contact not found' }, { status: 404 });
     }
 
     const assessment = assessCadence([contact]).get(contact.email.toLowerCase());
-    const last = contact.lastContacted ? new Date(contact.lastContacted).getTime() : NaN;
-    const daysSince = assessment?.daysSince ?? (isNaN(last) ? 0 : Math.floor((Date.now() - last) / 86_400_000));
-    const typicalDays = assessment?.cadence.source === 'pair' ? assessment.cadence.typicalDays : undefined;
-
     const draft = await draftOpener({
       contact,
       userName: session.user.name ?? '',
-      daysSince,
-      typicalDays,
+      daysSince: assessment?.daysSince ?? 0,
+      neverTouched: assessment?.neverTouched ?? true,
+      typicalDays: assessment?.cadence.source === 'pair' ? assessment.cadence.typicalDays : undefined,
     });
     return NextResponse.json(draft);
   } catch (error) {

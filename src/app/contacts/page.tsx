@@ -1179,16 +1179,18 @@ function ContactsContent() {
 
   // What the model read from the mail about a contact: keep it with the contact.
   const handleMemoryLoaded = useCallback((memories: Record<string, ContactMemory>) => {
+    const withMemory = (c: Contact): Contact => {
+      const memory = memories[c.email.toLowerCase()];
+      return memory ? { ...c, memory } : c;
+    };
     queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
-      const existing = oldData?.contacts ?? [];
-      const merged = existing.map(c => {
-        const memory = memories[c.email.toLowerCase()];
-        return memory ? { ...c, memory } : c;
-      });
+      const merged = (oldData?.contacts ?? []).map(withMemory);
       return session?.user?.email
         ? persistContacts(session.user.email, merged)
         : { contacts: merged, lastUpdated: new Date().toISOString() };
     });
+    // The open modal holds its own copy of the contact; keep it in step.
+    setSelectedContact(prev => (prev ? withMemory(prev) : prev));
   }, [queryClient, session?.user?.email]);
 
   const handleSnoozed = useCallback((email: string, snoozedUntil: string) => {
