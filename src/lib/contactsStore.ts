@@ -73,6 +73,14 @@ const latestIso = (a: string | null, b: string | null): string | null => {
   return new Date(a) > new Date(b) ? a : b;
 };
 
+// A touch cannot be in the future; a typo in an imported date must not mask
+// every real touch after it. Anything past tomorrow is treated as unknown.
+const saneTouch = (iso: string | null | undefined): string | null => {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return !isNaN(t) && t <= Date.now() + 24 * 60 * 60 * 1000 ? iso : null;
+};
+
 type Interaction = NonNullable<Contact['interactions']>[number];
 
 // Same cap logTouch uses; a merged history must not grow a row unboundedly.
@@ -218,7 +226,7 @@ export async function mergeProviderContacts(
       name: prior?.name || direct.name || email,
       company: direct.company ?? prior?.company ?? null,
       industry: direct.industry ?? prior?.industry ?? null,
-      last_contacted: latestIso(incomingLatest, prior?.last_contacted ?? null),
+      last_contacted: latestIso(saneTouch(incomingLatest), saneTouch(prior?.last_contacted)),
       interactions: combineInteractions([
         ...group.flatMap((c) => c.interactions ?? []),
         ...(asArray(prior?.interactions) as Interaction[]),
