@@ -47,7 +47,7 @@ const CONSUMER_DOMAINS = new Set([
   'icloud.com', 'me.com', 'aol.com', 'proton.me', 'protonmail.com',
 ]);
 
-function circleKey(members: string[]): string {
+export function circleKey(members: string[]): string {
   // djb2 over the sorted member list: short, stable, never shown.
   let hash = 5381;
   for (const ch of members.join(',')) hash = ((hash << 5) + hash + ch.charCodeAt(0)) | 0;
@@ -82,7 +82,7 @@ function prettyDomain(domain: string): string {
 }
 
 /** A name the user will recognize: shared company, shared domain, shared event, else the people. */
-function nameCircle(members: string[], byEmail: Map<string, Contact>): string {
+export function nameCircle(members: string[], byEmail: Map<string, Contact>): string {
   const people = members.map(m => byEmail.get(m)).filter((c): c is Contact => !!c);
   const companies = new Set(people.map(p => p.company?.trim()).filter((c): c is string => !!c));
   if (companies.size === 1 && people.length === members.length && people.every(p => p.company?.trim())) {

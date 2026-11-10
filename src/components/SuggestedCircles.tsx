@@ -1,8 +1,30 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Contact } from '@/types';
 import { dismissCircle, readDismissedCircles, suggestCircles } from '@/utils/circles';
+import type { SemanticCircle } from '@/utils/semanticCircles';
+
+/** Sixty vector lookups and a few model calls per request: ask once per visit, not once per mount. */
+const STALE_MS = 10 * 60 * 1000;
+
+async function fetchSemanticCircles(): Promise<SemanticCircle[]> {
+  const response = await fetch('/api/circles/semantic', { method: 'POST' });
+  if (!response.ok) throw new Error(`Semantic circles request failed: ${response.status}`);
+  const body = await response.json();
+  return Array.isArray(body?.circles) ? (body.circles as SemanticCircle[]) : [];
+}
+
+/** One card shape for both kinds of circle. */
+type Card = { key: string; name: string; members: string[]; detail: string; kind: 'mail' | 'alike' };
+
+function jaccard(a: string[], b: string[]): number {
+  const setB = new Set(b);
+  let common = 0;
+  for (const m of a) if (setB.has(m)) common++;
+  return common / (a.length + b.length - common);
+}
 
 interface Props {
   contacts: Contact[];
@@ -39,12 +61,40 @@ export default function SuggestedCircles({ contacts, groups, userEmail, onCreate
     () => suggestCircles(contacts, groups, { limit: 4, dismissed }),
     [contacts, groups, dismissed]
   );
+  // Circles of alike profiles, from the embeddings: the same dismissals apply, give or take a member.
+  const { data: alike = [] } = useQuery({
+    queryKey: ['semantic-circles', userEmail],
+    queryFn: fetchSemanticCircles,
+    enabled: Boolean(userEmail),
+    staleTime: STALE_MS,
+    retry: false,
+  });
+  const cards = useMemo<Card[]>(() => {
+    const fromMail: Card[] = suggestions.map(circle => ({
+      key: circle.key,
+      name: circle.name,
+      members: circle.members,
+      detail: `${circle.members.length} people · together on ${circle.messages} email${circle.messages === 1 ? '' : 's'} · last ${ago(circle.lastSeen)}`,
+      kind: 'mail',
+    }));
+    const fromProfiles: Card[] = alike
+      .filter(circle => !dismissed.some(d => jaccard(d, circle.members) >= 0.6))
+      .filter(circle => !fromMail.some(card => jaccard(card.members, circle.members) >= 0.6))
+      .map(circle => ({
+        key: `alike-${circle.key}`,
+        name: circle.name,
+        members: circle.members,
+        detail: `${circle.members.length} people · alike profiles, ${Math.round(circle.cohesion * 100)}% close`,
+        kind: 'alike',
+      }));
+    return [...fromMail, ...fromProfiles].slice(0, 8);
+  }, [suggestions, alike, dismissed]);
   const namesByEmail = useMemo(
     () => new Map(contacts.map(c => [c.email.toLowerCase(), c.name || c.email])),
     [contacts]
   );
 
-  if (suggestions.length === 0) return null;
+  if (cards.length === 0) return null;
 
   const dismiss = (members: string[]) => {
     if (userEmail) dismissCircle(userEmail, members);
@@ -55,15 +105,13 @@ export default function SuggestedCircles({ contacts, groups, userEmail, onCreate
     <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
       <div className="mb-3">
         <h2 className="text-base font-semibold text-[#1E1E3F]">Circles you already have</h2>
-        <p className="text-sm text-gray-500">People you keep emailing together. Keep one as a group, or dismiss it.</p>
+        <p className="text-sm text-gray-500">People you keep emailing together, and people whose profiles are alike. Keep one as a group, or dismiss it.</p>
       </div>
       <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        {suggestions.map(circle => (
+        {cards.map(circle => (
           <div key={circle.key} className="border border-gray-100 rounded-lg p-3 flex flex-col gap-1.5 min-w-0">
             <p className="font-medium text-[#1E1E3F] truncate">{circle.name}</p>
-            <p className="text-xs text-gray-400">
-              {circle.members.length} people &middot; together on {circle.messages} email{circle.messages === 1 ? '' : 's'} &middot; last {ago(circle.lastSeen)}
-            </p>
+            <p className="text-xs text-gray-400">{circle.detail}</p>
             <p className="text-xs text-gray-500 line-clamp-2">
               {circle.members.map(member => namesByEmail.get(member) ?? member).join(', ')}
             </p>
