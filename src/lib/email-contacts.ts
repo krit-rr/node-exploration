@@ -16,7 +16,10 @@ export interface EmailContact {
 
 export interface SentMessage {
   sentDateTime: string;
+  /** To and Cc: the people who could see each other on the message. */
   recipients: EmailContact[];
+  /** Bcc: contacts like any other, but never recorded as anyone's co-recipient, and nobody is recorded as theirs. */
+  bccRecipients?: EmailContact[];
   subject?: string;
   snippet?: string;
 }
@@ -27,6 +30,8 @@ export interface ContactInteraction {
   type: 'sent';
   subject?: string;
   snippet?: string;
+  /** The other recipients of the same message, when it went to a small group. */
+  participants?: string[];
 }
 
 export interface Contact {
@@ -40,6 +45,28 @@ export interface Contact {
 
 // Bounded per contact so a frequent correspondent doesn't dominate the payload
 const MAX_INTERACTIONS_PER_CONTACT = 20;
+
+// A circle is three people counting the contact whose row records it, so
+// co-recipients are kept from three visible addresses up. A message to more
+// people than MAX_GROUP_RECIPIENTS is a broadcast, not a circle: its
+// co-recipients say nothing about who belongs together, so none are kept.
+const MIN_GROUP_RECIPIENTS = 3;
+const MAX_GROUP_RECIPIENTS = 20;
+
+/** Lower-cased, well-formed, each address once: an address in both To and Cc is one recipient. */
+function normalizeRecipients(list: EmailContact[] | undefined, except: Set<string> = new Set()): EmailContact[] {
+  const seen = new Set<string>(except);
+  const out: EmailContact[] = [];
+  for (const recipient of list ?? []) {
+    const address = recipient.emailAddress.address.toLowerCase();
+    // Skip malformed addresses (e.g. header fragments without an @) so they
+    // can't become phantom contacts
+    if (!address.includes('@') || seen.has(address)) continue;
+    seen.add(address);
+    out.push({ emailAddress: { name: recipient.emailAddress.name, address } });
+  }
+  return out;
+}
 
 export function isValidDate(dateStr: string): boolean {
   const date = new Date(dateStr);
@@ -57,11 +84,16 @@ export function aggregateContactsByLatestInteraction(messages: SentMessage[]): C
     const sentDate = new Date(message.sentDateTime);
     const isoDate = sentDate.toISOString();
 
-    for (const recipient of message.recipients) {
-      const emailAddress = recipient.emailAddress.address.toLowerCase();
-      // Skip malformed addresses (e.g. header fragments without an @) so they
-      // can't become phantom contacts
-      if (!emailAddress.includes('@')) continue;
+    // Who else was on this message: the raw material for circles. Only the
+    // visible recipients count, and only when there are enough of them.
+    const visible = normalizeRecipients(message.recipients);
+    const hidden = normalizeRecipients(message.bccRecipients, new Set(visible.map(r => r.emailAddress.address)));
+    const addresses = visible.map(r => r.emailAddress.address);
+    const groupMessage = addresses.length >= MIN_GROUP_RECIPIENTS && addresses.length <= MAX_GROUP_RECIPIENTS;
+
+    for (const recipient of [...visible, ...hidden]) {
+      const emailAddress = recipient.emailAddress.address;
+      const wasHidden = !addresses.includes(emailAddress);
       const name = recipient.emailAddress.name || emailAddress;
 
       // If this contact doesn't exist in our map, or if this message is more
@@ -85,7 +117,8 @@ export function aggregateContactsByLatestInteraction(messages: SentMessage[]): C
           channel: 'email',
           type: 'sent',
           subject: message.subject,
-          snippet: message.snippet
+          snippet: message.snippet,
+          ...(groupMessage && !wasHidden ? { participants: addresses.filter(address => address !== emailAddress) } : {}),
         });
       }
     }

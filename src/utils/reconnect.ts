@@ -1,5 +1,8 @@
 import { Contact } from '@/types';
 
+/** Senders that are systems, not people: never a relationship, never a circle member. */
+export const AUTOMATED_ADDRESS = /^(no-?reply|noreply|newsletter|notifications?|marketing|updates|info|support|hello)@/i;
+
 export interface ReconnectCandidate {
   contact: Contact;
   daysSince: number;
@@ -31,7 +34,7 @@ export function computeReconnectQueue(
   for (const contact of contacts) {
     if (contact.isSpam) continue;
     if (contact.snoozedUntil && new Date(contact.snoozedUntil).getTime() > now) continue;
-    if (/^(no-?reply|noreply|newsletter|notifications?|marketing|updates|info|support|hello)@/i.test(contact.email)) continue;
+    if (AUTOMATED_ADDRESS.test(contact.email)) continue;
 
     const last = contact.lastContacted ? new Date(contact.lastContacted).getTime() : NaN;
     if (isNaN(last)) continue;
