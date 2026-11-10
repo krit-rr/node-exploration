@@ -43,7 +43,29 @@ export interface Contact {
   createdAt?: string;
   /** Where the user wants this person on the orbit map: 1 (closest five) to 4 (the 150). Unset means wherever activity puts them. */
   intendedLayer?: number;
+  /** What Node has read out of the mail about this person; see ContactMemory. */
+  memory?: ContactMemory;
   enrichedBy?: 'ai';
+}
+
+/** A promise that looked unresolved as of the newest message. */
+export interface OpenLoop {
+  /** What is owed, as a short verb phrase without a subject: "send the deck by Friday". */
+  text: string;
+  /** Who owes it. */
+  who: 'you' | 'them';
+  /** The date (YYYY-MM-DD) of the message it was read from. */
+  date: string;
+}
+
+/** The notes nobody keeps, read out of stored subjects and previews by the model. */
+export interface ContactMemory {
+  /** At most two short sentences: what this is about, what changed lately. */
+  summary: string;
+  openLoops: OpenLoop[];
+  /** Hash of the interactions it was read from; unchanged history never costs another model call. */
+  sourceHash: string;
+  updatedAt: string;
 }
 
 export type Group = {

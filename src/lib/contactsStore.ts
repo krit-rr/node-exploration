@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from './supabaseAdmin';
-import { Contact } from '@/types';
+import { Contact, ContactMemory } from '@/types';
 
 /**
  * Server-side contact repository (Supabase, service-role only).
@@ -32,6 +32,7 @@ type ContactRow = {
   alt_emails?: unknown;
   created_at?: string;
   intended_layer?: number | null;
+  memory?: unknown;
 };
 
 // Postgres error codes for "relation does not exist" / RLS-off states we
@@ -51,7 +52,7 @@ const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 // database has them, PostgREST rejects statements naming those columns
 // (PGRST204 / 42703); strip them and retry so core persistence keeps
 // working pre-migration.
-const NEW_COLUMNS = ['met_at', 'snoozed_until', 'introduced_by', 'alt_emails', 'intended_layer'] as const;
+const NEW_COLUMNS = ['met_at', 'snoozed_until', 'introduced_by', 'alt_emails', 'intended_layer', 'memory'] as const;
 
 function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
@@ -93,6 +94,19 @@ function combineInteractions(interactions: Interaction[]): Interaction[] {
   return combined.slice(0, MAX_INTERACTIONS);
 }
 
+/** A stored memory, or undefined when the column is empty or malformed. */
+function asMemory(value: unknown): ContactMemory | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const memory = value as Partial<ContactMemory>;
+  if (typeof memory.sourceHash !== 'string' || !Array.isArray(memory.openLoops)) return undefined;
+  return {
+    summary: typeof memory.summary === 'string' ? memory.summary : '',
+    openLoops: memory.openLoops,
+    sourceHash: memory.sourceHash,
+    updatedAt: typeof memory.updatedAt === 'string' ? memory.updatedAt : '',
+  };
+}
+
 export function rowToContact(row: ContactRow): Contact {
   return {
     id: row.id,
@@ -117,6 +131,7 @@ export function rowToContact(row: ContactRow): Contact {
     introducedBy: row.introduced_by ?? undefined,
     createdAt: row.created_at ?? undefined,
     intendedLayer: typeof row.intended_layer === 'number' ? row.intended_layer : undefined,
+    memory: asMemory(row.memory),
     ...(asArray(row.alt_emails).length > 0
       ? { altEmails: asArray(row.alt_emails).map(String) }
       : {}),
@@ -699,6 +714,42 @@ export async function setSnooze(
   if (error) {
     if (isMissingStore(error) || isMissingColumn(error)) return { available: false };
     throw new Error(`Failed to snooze contact: ${error.message}`);
+  }
+  return { available: true };
+}
+
+/** The stored rows for a few specific addresses (the ones the user is looking at). */
+export async function listContactsByEmail(
+  owner: string,
+  emails: string[]
+): Promise<{ available: boolean; contacts: Contact[] }> {
+  if (emails.length === 0) return { available: true, contacts: [] };
+  const { data, error } = await getSupabaseAdmin()
+    .from('contacts')
+    .select('*')
+    .eq('owner_email', owner)
+    .in('email', emails.map((e) => e.toLowerCase()));
+  if (error) {
+    if (isMissingStore(error)) return { available: false, contacts: [] };
+    throw new Error(`Failed to read contacts: ${error.message}`);
+  }
+  return { available: true, contacts: (data as ContactRow[]).map(rowToContact) };
+}
+
+/** Write what the model read about a contact. Only the memory route writes this column. */
+export async function saveMemory(
+  owner: string,
+  email: string,
+  memory: ContactMemory
+): Promise<{ available: boolean }> {
+  const { error } = await getSupabaseAdmin()
+    .from('contacts')
+    .update({ memory, updated_at: new Date().toISOString() })
+    .eq('owner_email', owner)
+    .eq('email', email.toLowerCase());
+  if (error) {
+    if (isMissingStore(error) || isMissingColumn(error)) return { available: false };
+    throw new Error(`Failed to save memory: ${error.message}`);
   }
   return { available: true };
 }

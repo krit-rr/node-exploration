@@ -35,7 +35,7 @@ flowchart LR
 1. **The server store is the source of truth.** `localStorage` is an offline and fast-boot cache, never the system of record. Every cache writer goes through `persistContacts()` so the persisted shape (`{ contacts, lastUpdated, userEmail }`) stays uniform.
 2. **Provider syncs merge, never replace.** A mailbox pull adds to the stored history and the newest touch wins on recency, whichever side recorded it, so logged calls and emails that have left the provider's window survive a sync; the store wins on intent (edits, enrichment, tags, notes, spam flags). Contacts that fall outside the last ~100 sent emails survive forever.
 3. **Graceful degradation at every seam.** Missing table: the store helpers report `available: false` and routes fall back to stateless behavior. Missing column (a migration not yet applied): writes strip the new columns and retry (`NEW_COLUMNS` in `contactsStore`). The app never breaks because the database is a migration behind.
-4. **Expensive work stays off the request path.** AI enrichment and embedding sync run out of band, triggered by the client after data renders. Mailbox reads are concurrency-capped. Every OpenAI-backed route is rate-limited per user.
+4. **Expensive work stays off the request path.** AI enrichment and embedding sync run out of band, triggered by the client after data renders. Memory (summary and open loops) is read only for the contacts the user is looking at, the rail's five and an open contact detail, and each contact's history is hashed so an unchanged one is never re-read. Mailbox reads are concurrency-capped. Every OpenAI-backed route is rate-limited per user.
 5. **Secrets stay server-side.** The OAuth access token lives only in the httpOnly JWT (`getToken()`), never on the client-visible session. The Supabase service-role key exists only in server routes. RLS is enabled with zero policies on every table, so browser keys read nothing.
 
 ## Data model (Supabase)
@@ -44,7 +44,7 @@ All tables: RLS on, no policies, service-role access only. Keyed by `owner_email
 
 | Table | Key | Holds |
 |---|---|---|
-| `contacts` | `(owner_email, email)` | name, company, industry, `last_contacted`, `interactions` jsonb (dated, with channel, subject, snippet), `custom_fields`, `tags`, `notes`, `is_spam`, `met_at`, `snoozed_until`, `introduced_by`, `intended_layer` (where the user wants them on the orbit map, 1 to 4), source |
+| `contacts` | `(owner_email, email)` | name, company, industry, `last_contacted`, `interactions` jsonb (dated, with channel, subject, snippet), `custom_fields`, `tags`, `notes`, `is_spam`, `met_at`, `snoozed_until`, `introduced_by`, `intended_layer` (where the user wants them on the orbit map, 1 to 4), `memory` jsonb (summary and open loops the model read from the mail, with the source hash), source |
 | `groups` | `(owner_email, id)` | name, `members` jsonb (email list); client-generated ids |
 | `views` | `(owner_email, id)` | name, `config` jsonb (search, filter, sort) |
 | `contact_embeddings` / `interaction_embeddings` | owner + content hash | pgvector embeddings for semantic search; hash-gated so unchanged content is never re-embedded |
@@ -64,6 +64,7 @@ Migrations live in `supabase/migrations/` and are applied via the Supabase SQL e
 | `/api/contacts/touch` | POST | log an email, call, meeting or other outreach; bumps recency | session |
 | `/api/contacts/reconnect` | POST | snooze a contact out of the queue for N days | session |
 | `/api/contacts/orbit` | POST | set or clear where a contact should sit on the orbit map (1 to 4) | session; 60/min |
+| `/api/contacts/memory` | POST | read, or re-read with `force`, the memory of up to eight contacts the user is looking at; unchanged history costs no model call | session; 6/min |
 | `/api/contacts/tags` | POST | add one tag to up to 500 contacts | session |
 | `/api/contacts/spam` | POST | persist cleanup-assistant decisions | session |
 | `/api/groups`, `/api/views` | GET, PUT | list and replace-set, client-generated ids | session; PUT 30/min |
@@ -76,6 +77,7 @@ Error responses are generic; details stay in server logs.
 
 - `src/app/contacts/page.tsx`: the core surface. `useContacts()` (single query key, network-first), the Going-cold `ReconnectRail`, filter chips (quick filters, groups, tags, saved views), the spreadsheet `ContactTable` with selection and bulk tagging, quick-add, import, export, cleanup assistant.
 - `src/app/orbit/page.tsx`, `src/utils/orbit.ts`, `src/components/OrbitMap.tsx`: the orbit map. Every real contact is a point around the user; closeness (recency with a 90-day half-life, frequency over the last year, depth of history, a nudge for priority) ranks them into rings of 5, 15, 50 and 150 with a faint band beyond, colleagues share a wedge, and going-cold contacts are coloured from the cadence assessment. Dragging a dot to a ring stores `intended_layer`; a hollow marker shows it when it differs from the ring activity puts them in, and the inner two rings count as priority in the queue.
+- `src/lib/memory.ts` and the memory route: memory that writes itself. The subjects and short previews already stored for a contact (newest 20) go to the model with a fixed JSON shape; back come a two-sentence summary and up to four open loops (who promised what, on which date). Everything the model reads is third-party text and is treated as data: strings are clipped, every loop date must be one of the source dates, and the result lives on the owner's row only. The reconnect rail shows the newest open loop ("You promised: send the deck"); `ContactDetail` shows the whole memory with a re-read button.
 - `src/app/insights/page.tsx`: compact rail, `NetworkScore` (priority-aware, computed), `SmartInsights` groupings, activity timeline. Everything memoized; widgets wrapped in error boundaries.
 - `src/hooks/useContacts.ts`: the one contacts query plus `persistContacts` and `syncContacts`. All cache writers produce the same shape.
 - `src/utils/reconnect.ts` and `src/utils/cadence.ts`: the going-cold queue, judged per relationship. A pair with three or more past gaps between touches is measured against its own rhythm (a log-normal over those gaps); with less history it is measured against the user's typical gap, floored at 45 days. A contact enters the queue when the silence is more likely than not to be past that typical gap, and never under two weeks of silence. Spam and no-reply excluded, snoozes respected, priority contacts first, then the most overdue. Priority means tagged `key-contact` or in a group (`isPriorityContact`); other tags do not reorder the queue. A contact with no recorded touch ages from `createdAt` instead of being skipped.

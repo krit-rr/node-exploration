@@ -126,6 +126,31 @@ addContact({
 // One contact with a custom field for the custom-column demo
 rows[0].custom_fields = [{ id: 'custom_where_we_met', label: 'Where we met', value: 'SF Climate Summit' }];
 
+// Memory: what the model would read out of the mail for two contacts, so
+// the rail's "You promised" line and the detail's memory section show
+// without an OpenAI call. Real accounts read theirs on demand.
+const memorySeed = {
+  'ava.chen@lumenworks.io': {
+    summary: 'Partner contact at Lumenworks; you are piloting their product and reviewing a deck together.',
+    openLoops: [
+      { text: 'send the revised deck', who: 'you', date: iso(9).slice(0, 10) },
+      { text: 'confirm the pilot start date', who: 'them', date: iso(23).slice(0, 10) },
+    ],
+    sourceHash: 'seed',
+    updatedAt: new Date().toISOString(),
+  },
+  'claire.hartley@hartleycapital.com': {
+    summary: 'Investor at Hartley Capital; term sheet and diligence discussions, most recently on the diligence notes.',
+    openLoops: [{ text: 'share the updated financial model', who: 'you', date: iso(14).slice(0, 10) }],
+    sourceHash: 'seed',
+    updatedAt: new Date().toISOString(),
+  },
+};
+for (const [email, memory] of Object.entries(memorySeed)) {
+  const row = rows.find(r => r.email === email);
+  if (row) row.memory = memory;
+}
+
 // Orbit intents: two people the demo user has deliberately placed, so the
 // map shows a hollow "where you want them" marker out of the box.
 for (const [email, layer] of [['jordan.lee@northbeam.co', 2], ['felix.brandt@bluefinlabs.dev', 1]]) {
@@ -133,20 +158,23 @@ for (const [email, layer] of [['jordan.lee@northbeam.co', 2], ['felix.brandt@blu
   if (row) row.intended_layer = layer;
 }
 
-let { error } = await supabase.from('contacts').upsert(rows, { onConflict: 'owner_email,email' });
-if (error) {
-  // Databases without the orbit migration: seed everything else.
-  const noOrbit = rows.map(({ intended_layer: _l, ...rest }) => rest);
-  ({ error } = await supabase.from('contacts').upsert(noOrbit, { onConflict: 'owner_email,email' }));
-  if (!error) console.warn('Contact column intended_layer missing; seeded without orbit intents.');
+// Columns added by later migrations, newest first. A database that is a
+// migration or more behind rejects the unknown column; drop the newest
+// optional columns one at a time until the upsert fits, and say what was left out.
+const OPTIONAL_COLUMNS = ['memory', 'intended_layer', 'met_at', 'snoozed_until', 'introduced_by'];
+let error = null;
+for (let drop = 0; drop <= OPTIONAL_COLUMNS.length; drop++) {
+  const dropped = new Set(OPTIONAL_COLUMNS.slice(0, drop));
+  const payload = drop === 0
+    ? rows
+    : rows.map(r => Object.fromEntries(Object.entries(r).filter(([key]) => !dropped.has(key))));
+  ({ error } = await supabase.from('contacts').upsert(payload, { onConflict: 'owner_email,email' }));
+  if (!error) {
+    if (drop > 0) console.warn(`Contact columns missing (${[...dropped].join(', ')}); seeded without them.`);
+    break;
+  }
 }
-if (error) {
-  // Older databases predate the Phase A/B columns; seed what fits instead of dying.
-  const stripped = rows.map(({ met_at: _m, snoozed_until: _s, introduced_by: _i, intended_layer: _l, ...rest }) => rest);
-  const { error: retryError } = await supabase.from('contacts').upsert(stripped, { onConflict: 'owner_email,email' });
-  if (retryError) throw new Error(retryError.message);
-  console.warn('Contact columns met_at/snoozed_until/introduced_by missing; seeded without them.');
-}
+if (error) throw new Error(error.message);
 console.log(`Seeded ${rows.length} demo contacts for ${OWNER}`);
 
 // A group and two saved views so the organization features demo out of the box.

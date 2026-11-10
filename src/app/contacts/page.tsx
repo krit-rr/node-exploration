@@ -6,7 +6,7 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { format, isValid } from "date-fns";
 import GroupModal from "@/components/GroupModal";
-import { Contact } from '@/types';
+import { Contact, type ContactMemory } from '@/types';
 import ContactTable from "@/components/ContactTable";
 import ContactDetail from "@/components/ContactDetail";
 import ColumnCustomizer from "@/components/ColumnCustomizer";
@@ -1177,6 +1177,20 @@ function ContactsContent() {
     toast.success(`Merged into ${merged.name || primary.email}`);
   }, [queryClient, session?.user?.email]);
 
+  // What the model read from the mail about a contact: keep it with the contact.
+  const handleMemoryLoaded = useCallback((memories: Record<string, ContactMemory>) => {
+    queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
+      const existing = oldData?.contacts ?? [];
+      const merged = existing.map(c => {
+        const memory = memories[c.email.toLowerCase()];
+        return memory ? { ...c, memory } : c;
+      });
+      return session?.user?.email
+        ? persistContacts(session.user.email, merged)
+        : { contacts: merged, lastUpdated: new Date().toISOString() };
+    });
+  }, [queryClient, session?.user?.email]);
+
   const handleSnoozed = useCallback((email: string, snoozedUntil: string) => {
     queryClient.setQueryData<ContactsData>(['sentRecipients', session?.user?.email], (oldData) => {
       const existing = oldData?.contacts ?? [];
@@ -1904,6 +1918,7 @@ function ContactsContent() {
             onSnoozed={handleSnoozed}
             onTouchLogged={handleTouchLogged}
             priorityEmails={priorityEmails}
+            onMemoryLoaded={handleMemoryLoaded}
           />
 
           {/* Enhanced Table Section */}
@@ -2006,6 +2021,7 @@ function ContactsContent() {
             onClose={() => setSelectedContact(null)}
             onSave={(contact) => { handleContactUpdate(contact, selectedContact.email).catch(() => {}); }}
             onAddColumn={handleAddColumn}
+            onMemoryLoaded={handleMemoryLoaded}
           />
         )}
 
