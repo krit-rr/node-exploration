@@ -12,6 +12,7 @@ import { computeReconnectQueue } from '@/utils/reconnect';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ReconnectRail from '@/components/ReconnectRail';
 import IntroSuggestions from '@/components/IntroSuggestions';
+import DigestSettings from '@/components/DigestSettings';
 import toast from 'react-hot-toast';
 
 export default function InsightsPage() {
@@ -91,6 +92,10 @@ export default function InsightsPage() {
                   priorityEmails={priorityEmails}
                   compact
                 />
+              </ErrorBoundary>
+
+              <ErrorBoundary label="DigestSettings">
+                <DigestSettings contacts={contacts} priorityEmails={priorityEmails} />
               </ErrorBoundary>
 
               <ErrorBoundary label="IntroSuggestions">
