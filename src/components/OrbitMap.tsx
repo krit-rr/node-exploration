@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { layerForDistance, ringDistance, RING_EDGE, type OrbitLayout, type OrbitPoint } from '@/utils/orbit';
+import { layerForDistance, ringDistance, RING_EDGE, type OrbitLayout, type OrbitMove, type OrbitPoint } from '@/utils/orbit';
 
 const SIZE = 640;
 const CENTER = SIZE / 2;
@@ -20,6 +20,10 @@ interface Props {
   onIntent: (email: string, layer: 1 | 2 | 3 | 4 | null) => void;
   /** Replaying the past: dots can be selected but not moved. */
   readOnly?: boolean;
+  /** This week's ring moves: a trail from where activity had someone to where it has them now. */
+  moves?: OrbitMove[];
+  /** Introductions worth making: a faint arc between the two people. */
+  arcs?: { a: string; b: string; title: string }[];
 }
 
 type Drag = { email: string; startX: number; startY: number; x: number; y: number; moved: boolean };
@@ -42,7 +46,7 @@ function distanceFromCenter(x: number, y: number): number {
  * inward or outward says where the person should be, and that intent is
  * drawn as a hollow marker joined to the dot by a dashed trail.
  */
-export default function OrbitMap({ layout, selected, onSelect, onIntent, readOnly = false }: Props) {
+export default function OrbitMap({ layout, selected, onSelect, onIntent, readOnly = false, moves = [], arcs = [] }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -103,6 +107,40 @@ export default function OrbitMap({ layout, selected, onSelect, onIntent, readOnl
       {drag?.moved && dropLayer === null && (
         <circle cx={CENTER} cy={CENTER} r={RING_EDGE[4] * SCALE} fill="none" stroke={INK} strokeOpacity="0.3" strokeDasharray="4 4" />
       )}
+
+      {arcs.map(arc => {
+        const a = layout.points.find(p => p.email === arc.a);
+        const b = layout.points.find(p => p.email === arc.b);
+        if (!a || !b) return null;
+        const from = polar(a.distance, a.angle);
+        const to = polar(b.distance, b.angle);
+        // A curve bowed toward the centre reads as a bridge across the map, not a straight edge.
+        const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+        const control = { x: mid.x + (CENTER - mid.x) * 0.35, y: mid.y + (CENTER - mid.y) * 0.35 };
+        const d = `M ${from.x} ${from.y} Q ${control.x} ${control.y} ${to.x} ${to.y}`;
+        return (
+          <g key={`arc-${arc.a}-${arc.b}`}>
+            <path d={d} fill="none" stroke={INK} strokeOpacity="0.28" strokeWidth="1.2" strokeDasharray="2 4" pointerEvents="none" />
+            <path d={d} fill="none" stroke="transparent" strokeWidth="8">
+              <title>{arc.title}</title>
+            </path>
+          </g>
+        );
+      })}
+
+      {moves.map(move => {
+        const point = layout.points.find(p => p.email === move.email);
+        if (!point) return null;
+        const from = polar(move.fromDistance, move.angle);
+        const to = polar(point.distance, point.angle);
+        const outward = move.to > move.from;
+        return (
+          <g key={`move-${move.email}`} pointerEvents="none">
+            <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={outward ? COLD : DOT} strokeOpacity="0.55" strokeWidth="1.5" />
+            <circle cx={from.x} cy={from.y} r="2.5" fill="none" stroke={outward ? COLD : DOT} strokeOpacity="0.55" />
+          </g>
+        );
+      })}
 
       {layout.points.filter(p => p.intendedLayer).map(p => {
         const dot = polar(p.distance, p.angle);

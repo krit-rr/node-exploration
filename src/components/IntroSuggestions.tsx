@@ -1,15 +1,13 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { useSession } from 'next-auth/react';
+import { useIntros } from '@/hooks/useIntros';
 import { composeLabel, composeOpensInBrowser, composeUrl } from '@/utils/compose';
 import { firstName } from '@/utils/draft';
-import { dismissIntro, readDismissedIntros, type IntroPerson, type IntroSuggestion } from '@/utils/intros';
+import { dismissIntro, readDismissedIntros, type IntroPerson } from '@/utils/intros';
 
 const SHOW = 3;
-/** Thirty vector lookups per request: ask once per visit, not once per mount. */
-const STALE_MS = 10 * 60 * 1000;
 
 /** The double opt-in note: ask one side first, connect once they say yes. */
 function introNote(to: IntroPerson, other: IntroPerson, alike: string, from: string): { subject: string; body: string } {
@@ -25,13 +23,6 @@ function introNote(to: IntroPerson, other: IntroPerson, alike: string, from: str
   };
 }
 
-async function fetchIntros(): Promise<IntroSuggestion[]> {
-  const response = await fetch('/api/contacts/intros', { method: 'POST' });
-  if (!response.ok) throw new Error(`Intros request failed: ${response.status}`);
-  const body = await response.json();
-  return Array.isArray(body?.intros) ? (body.intros as IntroSuggestion[]) : [];
-}
-
 /**
  * Three introductions worth making, with the reason in one line and a
  * ready-to-edit note to either side. Dismissing one is final for this
@@ -42,13 +33,7 @@ export default function IntroSuggestions() {
   const userEmail = session?.user?.email ?? null;
   const provider = session?.provider;
   const from = firstName(session?.user?.name ?? '', '');
-  const { data: intros = [] } = useQuery({
-    queryKey: ['intros', userEmail],
-    queryFn: fetchIntros,
-    enabled: Boolean(userEmail),
-    staleTime: STALE_MS,
-    retry: false,
-  });
+  const intros = useIntros();
   // Read with the user known, in the same render as the cards, so a dismissed card never flashes.
   const [dismissedVersion, setDismissedVersion] = useState(0);
   const dismissed = useMemo(

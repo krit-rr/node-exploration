@@ -7,7 +7,8 @@ import { useSession } from 'next-auth/react';
 import toast from 'react-hot-toast';
 import OrbitMap from '@/components/OrbitMap';
 import { persistContacts, useContacts, type ContactsData } from '@/hooks/useContacts';
-import { computeOrbit, contactsAsOf, LAYER_NAMES } from '@/utils/orbit';
+import { computeOrbit, contactsAsOf, displacedByIntent, LAYER_CAPACITY, LAYER_NAMES, orbitMoves, type OrbitPoint } from '@/utils/orbit';
+import { useIntros } from '@/hooks/useIntros';
 import { cadenceStatus } from '@/utils/reconnect';
 import { MAX_INTERACTIONS } from '@/utils/interactions';
 
@@ -65,11 +66,44 @@ export default function OrbitPage() {
   const point = layout.points.find(p => p.email === selected) ?? null;
   const goingCold = layout.points.filter(p => p.goingCold).length;
 
+  // This week's drift, by activity alone: who slipped out, who moved in.
+  const moves = useMemo(() => orbitMoves(contacts, { now: Date.now() }), [contacts]);
+  const nameOf = (email: string) => contacts.find(c => c.email.toLowerCase() === email)?.name || email;
+  // Introductions worth making, drawn as arcs between the two people.
+  const intros = useIntros();
+  const arcs = useMemo(
+    () => intros.slice(0, 3).map(intro => ({ a: intro.a.email, b: intro.b.email, title: `${intro.a.name} and ${intro.b.name}: ${intro.reason}` })),
+    [intros]
+  );
+
   const applyContacts = (next: typeof contacts) => {
     queryClient.setQueryData<ContactsData>(['sentRecipients', userEmail], old =>
       old ? { ...old, contacts: next } : old
     );
     if (userEmail) persistContacts(userEmail, next);
+  };
+
+  // Capacity is visible: the inner two rings hold five and fifteen, so
+  // putting a sixth person in means naming who moves out, and saying so.
+  const [pendingIntent, setPendingIntent] = useState<{ email: string; layer: 1 | 2; displaced: OrbitPoint } | null>(null);
+  const requestIntent = (email: string, layer: Intent) => {
+    if (layer !== 1 && layer !== 2) {
+      setIntent(email, layer);
+      return;
+    }
+    const displaced = displacedByIntent(layout, email, layer);
+    if (!displaced) {
+      setIntent(email, layer);
+      return;
+    }
+    setPendingIntent({ email, layer, displaced });
+  };
+  const confirmIntent = async () => {
+    if (!pendingIntent) return;
+    const { email, layer, displaced } = pendingIntent;
+    setPendingIntent(null);
+    await setIntent(displaced.email, (layer + 1) as 2 | 3);
+    await setIntent(email, layer);
   };
 
   const setIntent = async (email: string, layer: Intent) => {
@@ -123,7 +157,15 @@ export default function OrbitPage() {
         {layout.total > 0 && (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
             <div className="bg-white rounded-xl border border-gray-200 p-3">
-              <OrbitMap layout={layout} selected={selected} onSelect={setSelected} onIntent={setIntent} readOnly={replaying} />
+              <OrbitMap
+                layout={layout}
+                selected={selected}
+                onSelect={setSelected}
+                onIntent={requestIntent}
+                readOnly={replaying}
+                moves={replaying ? [] : moves}
+                arcs={replaying ? [] : arcs}
+              />
               <div className="flex items-center gap-3 px-2 pt-3">
                 <label htmlFor="orbit-weeks" className="text-xs text-gray-500 flex-none w-24">
                   {replaying ? `${weeksAgo} week${weeksAgo === 1 ? '' : 's'} ago` : 'Now'}
@@ -156,12 +198,29 @@ export default function OrbitPage() {
                   <>
                     <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#4B4BA6]/70 ring-1 ring-[#1E1E3F]" /> priority</span>
                     <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full border border-[#1E1E3F]/60" /> where you want them</span>
+                    {moves.length > 0 && <span className="inline-flex items-center gap-1.5"><span className="inline-block w-4 h-0.5 bg-[#D97706]/70" /> moved this week</span>}
+                    {arcs.length > 0 && <span className="inline-flex items-center gap-1.5"><span className="inline-block w-4 border-t border-dashed border-[#1E1E3F]/50" /> an intro worth making</span>}
                   </>
                 )}
               </div>
             </div>
 
             <aside className="bg-white rounded-xl border border-gray-200 p-4 text-sm">
+              {pendingIntent && (
+                <div className="mb-4 rounded-lg border border-[#1E1E3F]/20 bg-[#F4F4FF] p-3 text-xs text-[#1E1E3F]">
+                  <p>
+                    Your {LAYER_NAMES[pendingIntent.layer - 1]} holds {LAYER_CAPACITY[pendingIntent.layer - 1]} and is full. Putting {nameOf(pendingIntent.email)} in moves {pendingIntent.displaced.contact.name} out to the {LAYER_NAMES[pendingIntent.layer]}.
+                  </p>
+                  <div className="flex items-center gap-1.5 mt-2">
+                    <button onClick={confirmIntent} className="text-xs font-medium px-2.5 py-1 rounded-md bg-[#1E1E3F] text-white hover:bg-[#2D2D5F]">
+                      Move them
+                    </button>
+                    <button onClick={() => setPendingIntent(null)} className="text-xs px-2 py-1 rounded-md text-gray-500 hover:bg-gray-100">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
               {point ? (
                 <div className="flex flex-col gap-3">
                   {replaying && <p className="text-xs font-medium text-[#1E1E3F]">As of {thenLabel}</p>}
@@ -186,7 +245,7 @@ export default function OrbitPage() {
                         return (
                           <button
                             key={String(option.layer)}
-                            onClick={() => setIntent(point.email, option.layer)}
+                            onClick={() => requestIntent(point.email, option.layer)}
                             className={`text-xs px-2 py-1 rounded-md border transition-colors disabled:opacity-50 ${
                               current
                                 ? 'bg-[#1E1E3F] text-white border-[#1E1E3F]'
@@ -226,6 +285,26 @@ export default function OrbitPage() {
                         ? `${goingCold} ${goingCold === 1 ? 'person was' : 'people were'} going cold against their own rhythm ${thenLabel}.`
                         : `${goingCold} ${goingCold === 1 ? 'person is' : 'people are'} going cold against their own rhythm.`}
                   </p>
+                  {!replaying && moves.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-[#1E1E3F] mb-1">This week</p>
+                      <ul className="text-xs text-gray-500 space-y-1">
+                        {moves.slice(0, 5).map(move => (
+                          <li key={move.email}>
+                            <button onClick={() => setSelected(move.email)} className="text-left hover:text-[#1E1E3F]">
+                              {nameOf(move.email)} {move.to > move.from ? 'slipped' : 'moved in'} from the {LAYER_NAMES[move.from - 1]} to the {LAYER_NAMES[move.to - 1]}
+                            </button>
+                          </li>
+                        ))}
+                        {moves.length > 5 && <li>and {moves.length - 5} more</li>}
+                      </ul>
+                    </div>
+                  )}
+                  {!replaying && arcs.length > 0 && (
+                    <p className="text-xs text-gray-500">
+                      The dashed arcs are introductions worth making; hover one for the reason, or see Insights for the notes.
+                    </p>
+                  )}
                   <p className="text-xs text-gray-500">
                     {replaying
                       ? 'Click a dot for details. Slide back to now to drag.'
