@@ -2,6 +2,9 @@ import type { Contact } from '@/types';
 
 type Interaction = NonNullable<Contact['interactions']>[number];
 
+/** How many interactions a contact row keeps (the newest). A fuller history ends here, and the replay knows it. */
+export const MAX_INTERACTIONS = 50;
+
 /** Interactions that carry any text (a subject or a preview), newest first. */
 export function textInteractions(contact: Contact): Interaction[] {
   return [...(contact.interactions ?? [])]
