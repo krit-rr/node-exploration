@@ -41,6 +41,8 @@ export interface Contact {
   snoozedUntil?: string;
   /** When Node first stored the row; the reconnect queue falls back to it when no touch is recorded. */
   createdAt?: string;
+  /** Where the user wants this person on the orbit map: 1 (closest five) to 4 (the 150). Unset means wherever activity puts them. */
+  intendedLayer?: number;
   enrichedBy?: 'ai';
 }
 

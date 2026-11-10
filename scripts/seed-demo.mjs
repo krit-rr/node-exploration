@@ -126,10 +126,23 @@ addContact({
 // One contact with a custom field for the custom-column demo
 rows[0].custom_fields = [{ id: 'custom_where_we_met', label: 'Where we met', value: 'SF Climate Summit' }];
 
-const { error } = await supabase.from('contacts').upsert(rows, { onConflict: 'owner_email,email' });
+// Orbit intents: two people the demo user has deliberately placed, so the
+// map shows a hollow "where you want them" marker out of the box.
+for (const [email, layer] of [['jordan.lee@northbeam.co', 2], ['felix.brandt@bluefinlabs.dev', 1]]) {
+  const row = rows.find(r => r.email === email);
+  if (row) row.intended_layer = layer;
+}
+
+let { error } = await supabase.from('contacts').upsert(rows, { onConflict: 'owner_email,email' });
+if (error) {
+  // Databases without the orbit migration: seed everything else.
+  const noOrbit = rows.map(({ intended_layer: _l, ...rest }) => rest);
+  ({ error } = await supabase.from('contacts').upsert(noOrbit, { onConflict: 'owner_email,email' }));
+  if (!error) console.warn('Contact column intended_layer missing; seeded without orbit intents.');
+}
 if (error) {
   // Older databases predate the Phase A/B columns; seed what fits instead of dying.
-  const stripped = rows.map(({ met_at: _m, snoozed_until: _s, introduced_by: _i, ...rest }) => rest);
+  const stripped = rows.map(({ met_at: _m, snoozed_until: _s, introduced_by: _i, intended_layer: _l, ...rest }) => rest);
   const { error: retryError } = await supabase.from('contacts').upsert(stripped, { onConflict: 'owner_email,email' });
   if (retryError) throw new Error(retryError.message);
   console.warn('Contact columns met_at/snoozed_until/introduced_by missing; seeded without them.');

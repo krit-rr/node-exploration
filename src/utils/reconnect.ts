@@ -8,16 +8,19 @@ import {
   type CadenceEstimate,
 } from '@/utils/cadence';
 
-export interface ReconnectCandidate {
-  contact: Contact;
+export interface CadenceAssessment {
   daysSince: number;
   /** True when no touch was ever recorded and daysSince counts from when Node first saw them. */
   neverTouched: boolean;
-  lastSubject?: string;
-  priority: boolean;
   /** 0 to 1: how far past this relationship's own typical gap the silence has run. */
   overdue: number;
   cadence: CadenceEstimate;
+}
+
+export interface ReconnectCandidate extends CadenceAssessment {
+  contact: Contact;
+  lastSubject?: string;
+  priority: boolean;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -31,6 +34,9 @@ export const OVERDUE_THRESHOLD = 0.5;
 /** Under two weeks of silence is ordinary life whatever the pair's rhythm; never flag it. */
 export const MIN_SILENCE_DAYS = 14;
 
+/** Automated and no-reply style senders: never a relationship. */
+export const AUTOMATED_ADDRESS = /^(no-?reply|noreply|newsletter|notifications?|marketing|updates|info|support|hello)@/i;
+
 /**
  * The one tag that marks a priority relationship. Any other tag is just
  * organization (webinar, investor, climate) and says nothing about how much
@@ -40,11 +46,13 @@ export const PRIORITY_TAG = 'key-contact';
 
 /**
  * Priority means the user deliberately marked the person out: tagged
- * key-contact, or put in a group. `priorityEmails` carries the group
- * membership, which lives outside the contact row.
+ * key-contact, put in a group, or dragged into the inner two rings of the
+ * orbit map. `priorityEmails` carries the group membership, which lives
+ * outside the contact row.
  */
 export function isPriorityContact(contact: Contact, priorityEmails?: Set<string>): boolean {
   if ((contact.tags ?? []).some(t => t.toLowerCase() === PRIORITY_TAG)) return true;
+  if (contact.intendedLayer === 1 || contact.intendedLayer === 2) return true;
   return Boolean(priorityEmails?.has(contact.email.toLowerCase()));
 }
 
@@ -62,6 +70,48 @@ export function lastTouchTime(contact: Contact): { time: number; neverTouched: b
 }
 
 /**
+ * Every real contact's standing against its own rhythm, keyed by lowercase
+ * email. The queue, the orbit map and the score read from this one place.
+ * Spam-flagged and automated addresses are left out; snoozes are not
+ * applied here because a snooze is a queue decision, not a fact about the
+ * relationship.
+ */
+export function assessCadence(
+  contacts: Contact[],
+  coldDays = DEFAULT_COLD_DAYS,
+  now = Date.now()
+): Map<string, CadenceAssessment> {
+  const prior = userPrior(contacts, coldDays);
+  const assessments = new Map<string, CadenceAssessment>();
+  for (const contact of contacts) {
+    if (contact.isSpam) continue;
+    if (AUTOMATED_ADDRESS.test(contact.email)) continue;
+    const touch = lastTouchTime(contact);
+    if (!touch) continue;
+    const daysSince = Math.floor((now - touch.time) / DAY_MS);
+    const cadence = touch.neverTouched
+      ? estimateCadence([], prior)
+      : estimateCadence(gapsBetween(touchDays(contact)), prior);
+    assessments.set(contact.email.toLowerCase(), {
+      daysSince,
+      neverTouched: touch.neverTouched,
+      overdue: overdueProbability(daysSince, cadence),
+      cadence,
+    });
+  }
+  return assessments;
+}
+
+/** The queue's test, snooze aside: enough silence, and more likely than not past the pair's typical gap. */
+export function isGoingCold(assessment: CadenceAssessment): boolean {
+  return assessment.daysSince >= MIN_SILENCE_DAYS && assessment.overdue >= OVERDUE_THRESHOLD;
+}
+
+export function isSnoozed(contact: Contact, now = Date.now()): boolean {
+  return Boolean(contact.snoozedUntil && new Date(contact.snoozedUntil).getTime() > now);
+}
+
+/**
  * The reconnect queue: real contacts going cold, judged against their own
  * rhythm. Excludes spam-flagged contacts, obvious non-people (no-reply and
  * newsletter style addresses), and anything currently snoozed.
@@ -75,42 +125,29 @@ export function computeReconnectQueue(
   }: { coldDays?: number; limit?: number; priorityEmails?: Set<string> } = {}
 ): ReconnectCandidate[] {
   const now = Date.now();
-  const prior = userPrior(contacts, coldDays);
+  const assessments = assessCadence(contacts, coldDays, now);
   const candidates: ReconnectCandidate[] = [];
 
   for (const contact of contacts) {
-    if (contact.isSpam) continue;
-    if (contact.snoozedUntil && new Date(contact.snoozedUntil).getTime() > now) continue;
-    if (/^(no-?reply|noreply|newsletter|notifications?|marketing|updates|info|support|hello)@/i.test(contact.email)) continue;
-
-    const touch = lastTouchTime(contact);
-    if (!touch) continue;
-    const daysSince = Math.floor((now - touch.time) / DAY_MS);
-    if (daysSince < MIN_SILENCE_DAYS) continue;
-
-    const cadence = touch.neverTouched
-      ? estimateCadence([], prior)
-      : estimateCadence(gapsBetween(touchDays(contact)), prior);
-    const overdue = overdueProbability(daysSince, cadence);
-    if (overdue < OVERDUE_THRESHOLD) continue;
+    const assessment = assessments.get(contact.email.toLowerCase());
+    if (!assessment) continue;
+    if (isSnoozed(contact, now)) continue;
+    if (!isGoingCold(assessment)) continue;
 
     const sent = (contact.interactions ?? []).filter(i => i.type === 'sent');
     const lastWithSubject = [...sent].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
       .find(i => i.subject);
 
     candidates.push({
+      ...assessment,
       contact,
-      daysSince,
-      neverTouched: touch.neverTouched,
       lastSubject: lastWithSubject?.subject,
       priority: isPriorityContact(contact, priorityEmails),
-      overdue,
-      cadence,
     });
   }
 
-  // Priority relationships first (key-contact or in a group), then the most
-  // overdue against their own rhythm, then the longest silence.
+  // Priority relationships first (key-contact, group, or inner orbit), then
+  // the most overdue against their own rhythm, then the longest silence.
   candidates.sort((a, b) => {
     if (a.priority !== b.priority) return a.priority ? -1 : 1;
     if (b.overdue !== a.overdue) return b.overdue - a.overdue;
