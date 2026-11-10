@@ -15,6 +15,7 @@ export async function signOutAndPurge(userEmail?: string | null): Promise<void> 
       }
       localStorage.removeItem(`cleanup-shown-in-session-${userEmail}`);
       sessionStorage.removeItem(`cleanup-state_${userEmail}`);
+      localStorage.removeItem(`dismissed-intros_${userEmail}`);
     }
     // Legacy un-scoped flags from older versions
     for (const key of ['cleanup_just_closed', 'force_show_cleanup', 'sentRecipients_loaded_from_cache', 'contact-groups']) {
