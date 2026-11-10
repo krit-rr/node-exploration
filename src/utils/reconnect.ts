@@ -1,23 +1,35 @@
 import { Contact } from '@/types';
+import { AUTOMATED_ADDRESS } from '@/utils/addresses';
 import {
+  conversationGaps,
   estimateCadence,
-  gapsBetween,
   overdueProbability,
+  overdueZ,
+  priorFromGaps,
   touchDays,
-  userPrior,
   type CadenceEstimate,
 } from '@/utils/cadence';
 
-export interface ReconnectCandidate {
-  contact: Contact;
+export { AUTOMATED_ADDRESS } from '@/utils/addresses';
+
+export interface CadenceAssessment {
   daysSince: number;
   /** True when no touch was ever recorded and daysSince counts from when Node first saw them. */
   neverTouched: boolean;
+  /** 0 to 1: the chance this silence is already past the pair's typical gap. */
+  overdue: number;
+  /** The same silence in spreads past the typical gap; unbounded, used for ranking. */
+  overdueZ: number;
+  cadence: CadenceEstimate;
+  /** Distinct days the pair touched, all time and in the last year. */
+  touchCount: number;
+  touchesLastYear: number;
+}
+
+export interface ReconnectCandidate extends CadenceAssessment {
+  contact: Contact;
   lastSubject?: string;
   priority: boolean;
-  /** 0 to 1: how far past this relationship's own typical gap the silence has run. */
-  overdue: number;
-  cadence: CadenceEstimate;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -61,6 +73,73 @@ export function lastTouchTime(contact: Contact): { time: number; neverTouched: b
   return null;
 }
 
+/** Short durations for cards and emails: 9d, 3w, 4mo, 2y. */
+export function since(days: number): string {
+  if (days >= 365) return `${Math.floor(days / 365)}y`;
+  if (days >= 60) return `${Math.floor(days / 30)}mo`;
+  if (days >= 14) return `${Math.round(days / 7)}w`;
+  return `${days}d`;
+}
+
+/** The one line that says where this relationship stands. */
+export function cadenceStatus(assessment: CadenceAssessment): string {
+  if (assessment.neverTouched) return `Added ${since(assessment.daysSince)} ago, no touch yet`;
+  if (assessment.cadence.source === 'pair') {
+    return `Usually every ${since(Math.round(assessment.cadence.typicalDays))}, quiet for ${since(assessment.daysSince)}`;
+  }
+  return `Last touch ${since(assessment.daysSince)} ago`;
+}
+
+/**
+ * Every real contact's standing against its own rhythm, keyed by lowercase
+ * email. The queue, the orbit map and the score read from this one place.
+ * Spam-flagged and automated addresses are left out; snoozes are not
+ * applied here because a snooze is a queue decision, not a fact about the
+ * relationship. Each contact's touch days are read once.
+ */
+export function assessCadence(
+  contacts: Contact[],
+  coldDays = DEFAULT_COLD_DAYS,
+  now = Date.now()
+): Map<string, CadenceAssessment> {
+  const eligible: { contact: Contact; email: string; touch: { time: number; neverTouched: boolean }; days: number[]; gaps: number[] }[] = [];
+  for (const contact of contacts) {
+    if (contact.isSpam) continue;
+    if (AUTOMATED_ADDRESS.test(contact.email)) continue;
+    const touch = lastTouchTime(contact);
+    if (!touch) continue;
+    const days = touchDays(contact);
+    eligible.push({ contact, email: contact.email.toLowerCase(), touch, days, gaps: conversationGaps(days) });
+  }
+  const prior = priorFromGaps(eligible.map(e => e.gaps), coldDays);
+  const today = Math.floor(now / DAY_MS);
+
+  const assessments = new Map<string, CadenceAssessment>();
+  for (const { email, touch, days, gaps } of eligible) {
+    const daysSince = Math.floor((now - touch.time) / DAY_MS);
+    const cadence = estimateCadence(gaps, prior);
+    assessments.set(email, {
+      daysSince,
+      neverTouched: touch.neverTouched,
+      overdue: overdueProbability(daysSince, cadence),
+      overdueZ: overdueZ(daysSince, cadence),
+      cadence,
+      touchCount: days.length,
+      touchesLastYear: days.filter(d => today - d <= 365).length,
+    });
+  }
+  return assessments;
+}
+
+/** The queue's test, snooze aside: enough silence, and more likely than not past the pair's typical gap. */
+export function isGoingCold(assessment: CadenceAssessment): boolean {
+  return assessment.daysSince >= MIN_SILENCE_DAYS && assessment.overdue >= OVERDUE_THRESHOLD;
+}
+
+export function isSnoozed(contact: Contact, now = Date.now()): boolean {
+  return Boolean(contact.snoozedUntil && new Date(contact.snoozedUntil).getTime() > now);
+}
+
 /**
  * The reconnect queue: real contacts going cold, judged against their own
  * rhythm. Excludes spam-flagged contacts, obvious non-people (no-reply and
@@ -75,45 +154,33 @@ export function computeReconnectQueue(
   }: { coldDays?: number; limit?: number; priorityEmails?: Set<string> } = {}
 ): ReconnectCandidate[] {
   const now = Date.now();
-  const prior = userPrior(contacts, coldDays);
+  const assessments = assessCadence(contacts, coldDays, now);
   const candidates: ReconnectCandidate[] = [];
 
   for (const contact of contacts) {
-    if (contact.isSpam) continue;
-    if (contact.snoozedUntil && new Date(contact.snoozedUntil).getTime() > now) continue;
-    if (/^(no-?reply|noreply|newsletter|notifications?|marketing|updates|info|support|hello)@/i.test(contact.email)) continue;
+    const assessment = assessments.get(contact.email.toLowerCase());
+    if (!assessment) continue;
+    if (isSnoozed(contact, now)) continue;
+    if (!isGoingCold(assessment)) continue;
 
-    const touch = lastTouchTime(contact);
-    if (!touch) continue;
-    const daysSince = Math.floor((now - touch.time) / DAY_MS);
-    if (daysSince < MIN_SILENCE_DAYS) continue;
-
-    const cadence = touch.neverTouched
-      ? estimateCadence([], prior)
-      : estimateCadence(gapsBetween(touchDays(contact)), prior);
-    const overdue = overdueProbability(daysSince, cadence);
-    if (overdue < OVERDUE_THRESHOLD) continue;
-
-    const sent = (contact.interactions ?? []).filter(i => i.type === 'sent');
-    const lastWithSubject = [...sent].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .find(i => i.subject);
+    const lastWithSubject = [...(contact.interactions ?? [])]
+      .filter(i => i.type !== 'received')
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .find(i => i.subject?.trim());
 
     candidates.push({
+      ...assessment,
       contact,
-      daysSince,
-      neverTouched: touch.neverTouched,
-      lastSubject: lastWithSubject?.subject,
+      lastSubject: lastWithSubject?.subject?.trim(),
       priority: isPriorityContact(contact, priorityEmails),
-      overdue,
-      cadence,
     });
   }
 
-  // Priority relationships first (key-contact or in a group), then the most
-  // overdue against their own rhythm, then the longest silence.
+  // Priority relationships first (key-contact or in a group), then the
+  // furthest past their own rhythm, then the longest silence.
   candidates.sort((a, b) => {
     if (a.priority !== b.priority) return a.priority ? -1 : 1;
-    if (b.overdue !== a.overdue) return b.overdue - a.overdue;
+    if (b.overdueZ !== a.overdueZ) return b.overdueZ - a.overdueZ;
     return b.daysSince - a.daysSince;
   });
   return candidates.slice(0, limit);
