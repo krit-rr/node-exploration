@@ -1,5 +1,6 @@
-import { Contact } from '@/types';
-import { useState, useEffect } from 'react';
+import { Contact, type ContactMemory } from '@/types';
+import { memoryIsStale } from '@/utils/interactions';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Dialog } from '@headlessui/react';
 import { safeFormatDate } from '@/utils/dates';
@@ -14,6 +15,8 @@ interface Props {
   contact: Contact;
   onClose: () => void;
   onSave: (updatedContact: Contact) => void;
+  /** When given, the modal reads this contact's memory (summary and open loops) and hands it back to keep. */
+  onMemoryLoaded?: (memories: Record<string, ContactMemory>) => void;
   onAddColumn?: (column: { 
     key: string; 
     label: string; 
@@ -21,11 +24,61 @@ interface Props {
   }) => void;
 }
 
-export default function ContactDetail({ contact, onClose, onSave, onAddColumn }: Props) {
+export default function ContactDetail({ contact, onClose, onSave, onAddColumn, onMemoryLoaded }: Props) {
   const [editedContact, setEditedContact] = useState<Contact>({
     ...contact,
     customFields: contact.customFields || []
   });
+  const [readingMemory, setReadingMemory] = useState(false);
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+  const memoryRequested = useRef<string | null>(null);
+
+  const readMemory = async (force: boolean) => {
+    if (!onMemoryLoaded || readingMemory) return;
+    setReadingMemory(true);
+    setMemoryError(null);
+    try {
+      const response = await fetch('/api/contacts/memory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: [contact.email], force }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        setMemoryError(
+          response.status === 429
+            ? 'Too many reads in the last minute. Try again shortly.'
+            : response.status === 503
+              ? 'No model is configured for reading emails.'
+              : 'Could not read your emails with this person right now.'
+        );
+        return;
+      }
+      const email = contact.email.toLowerCase();
+      if (body?.memories?.[email]) {
+        onMemoryLoaded(body.memories);
+      } else if (Array.isArray(body?.failed) && body.failed.includes(email)) {
+        setMemoryError('The read failed partway. Try again.');
+      } else if (body?.persisted === false) {
+        setMemoryError('Memory is not set up on this database yet.');
+      } else if (!contact.memory) {
+        setMemoryError('No subject lines or previews are stored for this person yet.');
+      }
+    } catch {
+      setMemoryError('Could not read your emails with this person right now.');
+    } finally {
+      setReadingMemory(false);
+    }
+  };
+
+  // Read once per opened contact when nothing is stored or mail is newer than the last read.
+  useEffect(() => {
+    if (!onMemoryLoaded || memoryRequested.current === contact.email) return;
+    if (!memoryIsStale(contact)) return;
+    memoryRequested.current = contact.email;
+    readMemory(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contact, onMemoryLoaded]);
   const [tagDraft, setTagDraft] = useState('');
   const [customFields, setCustomFields] = useState<CustomField[]>(
     contact.customFields || []
@@ -280,6 +333,52 @@ export default function ContactDetail({ contact, onClose, onSave, onAddColumn }:
               </div>
             </motion.div>
           </div>
+
+          {/* Memory: what the mail says, read by the model */}
+          {onMemoryLoaded && (
+            <div className="mb-8">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-medium text-gray-700">From your emails</h3>
+                <button
+                  type="button"
+                  onClick={() => readMemory(true)}
+                  disabled={readingMemory}
+                  className="text-xs text-[#1E1E3F] hover:text-[#2D2D5F] font-medium disabled:opacity-50"
+                >
+                  {readingMemory ? 'Reading…' : contact.memory ? 'Read again' : 'Read now'}
+                </button>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-700 space-y-2">
+                {contact.memory ? (
+                  <>
+                    {contact.memory.summary && <p>{contact.memory.summary}</p>}
+                    {contact.memory.openLoops.length > 0 && (
+                      <ul className="space-y-1">
+                        {contact.memory.openLoops.map((loop, index) => (
+                          <li key={`${loop.date}-${index}`} className="flex items-baseline gap-2 text-sm">
+                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${loop.who === 'you' ? 'bg-[#F4F4FF] text-[#1E1E3F]' : 'bg-amber-50 text-amber-800'}`}>
+                              {loop.who === 'you' ? 'You promised' : 'They promised'}
+                            </span>
+                            <span className="flex-1 min-w-0">{loop.text}</span>
+                            <span className="text-xs text-gray-400 flex-none">{safeFormatDate(loop.date, 'MMM d, yyyy', '')}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {!contact.memory.summary && contact.memory.openLoops.length === 0 && (
+                      <p className="text-gray-500">Nothing worth remembering in the recent emails.</p>
+                    )}
+                    {contact.memory.updatedAt && (
+                      <p className="text-xs text-gray-400">Read {safeFormatDate(contact.memory.updatedAt, 'MMM d, yyyy', '')} from subject lines and short previews only.</p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-gray-500">{readingMemory ? 'Reading the subject lines and previews of your emails with this person…' : 'Nothing read yet.'}</p>
+                )}
+                {memoryError && <p className="text-xs text-red-600">{memoryError}</p>}
+              </div>
+            </div>
+          )}
 
           {/* Custom Fields */}
           <div className="space-y-6">

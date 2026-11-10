@@ -310,7 +310,7 @@ export default function Auth() {
                     </svg>
                     <div>
                       <p className="font-medium text-[#1E1E3F]">No Data Selling</p>
-                      <p className="text-sm text-gray-600">Your data is never sold. Contact details, subjects and snippets are processed by OpenAI (AI enrichment and search) and stored with Supabase (our database provider); anonymous usage analytics use PostHog.</p>
+                      <p className="text-sm text-gray-600">Your data is never sold. Contact details, subjects and snippets are processed by OpenAI (AI enrichment, search, and a short per-contact memory of open loops) and stored with Supabase (our database provider); anonymous usage analytics use PostHog.</p>
                     </div>
                   </li>
                   <li className="flex items-start gap-3 bg-[#F4F4FF] p-3 rounded-lg transition-transform hover:scale-[1.01]">

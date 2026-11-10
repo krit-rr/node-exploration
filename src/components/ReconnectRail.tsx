@@ -1,8 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Contact } from '@/types';
+import { useMemo, useState, useEffect, useRef } from 'react';
+import { Contact, type ContactMemory } from '@/types';
 import { cadenceStatus, computeReconnectQueue, type ReconnectCandidate } from '@/utils/reconnect';
+import { safeFormatDate } from '@/utils/dates';
+import { memoryIsStale } from '@/utils/interactions';
 
 export type TouchChannel = 'email' | 'call' | 'meeting' | 'other';
 
@@ -15,6 +17,12 @@ interface Props {
   /** Extra priority members (everyone in a group); the key-contact tag is read from the contact itself. */
   priorityEmails?: Set<string>;
   compact?: boolean;
+  /**
+   * When given, the rail reads memory (open loops) for the people it shows
+   * and hands the results back for the page to keep. Left out, nothing is
+   * read and no model call is made.
+   */
+  onMemoryLoaded?: (memories: Record<string, ContactMemory>) => void;
 }
 
 /** Why this card is here, against the pair's own rhythm or the user's. */
@@ -36,9 +44,10 @@ const CHANNELS: { key: TouchChannel; label: string }[] = [
  * "Going cold": the queue that makes staying in touch a feature. Clearing
  * a card happens by ACTING (log the touch) or deliberately snoozing.
  */
-export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, priorityEmails, compact = false }: Props) {
+export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, priorityEmails, compact = false, onMemoryLoaded }: Props) {
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [logging, setLogging] = useState<string | null>(null);
+  const memoryRequested = useRef<Set<string>>(new Set());
 
   const queue = useMemo(
     () =>
@@ -46,6 +55,28 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
         .filter(c => !hidden.has(c.contact.email)),
     [contacts, compact, hidden, priorityEmails]
   );
+
+  // Read the open loops for the people on the rail, once each, only when
+  // the page wants them. Unchanged history is free server-side.
+  useEffect(() => {
+    if (!onMemoryLoaded) return;
+    const emails = queue
+      .map(c => c.contact)
+      .filter(c => memoryIsStale(c) && !memoryRequested.current.has(c.email))
+      .map(c => c.email);
+    if (emails.length === 0) return;
+    for (const email of emails) memoryRequested.current.add(email);
+    fetch('/api/contacts/memory', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails }),
+    })
+      .then(response => (response.ok ? response.json() : null))
+      .then(body => {
+        if (body?.memories && Object.keys(body.memories).length > 0) onMemoryLoaded(body.memories);
+      })
+      .catch(() => {});
+  }, [queue, onMemoryLoaded]);
 
   const hide = (email: string) => setHidden(prev => new Set(prev).add(email));
 
@@ -116,6 +147,15 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
               </p>
               {candidate.contact.metAt && (
                 <p className="text-xs text-gray-400 truncate">Met at {candidate.contact.metAt}</p>
+              )}
+              {candidate.contact.memory?.openLoops[0] && (
+                <p
+                  className="text-xs text-[#1E1E3F]/80 truncate"
+                  title={`${candidate.contact.memory.openLoops[0].who === 'you' ? 'You' : 'They'} promised to ${candidate.contact.memory.openLoops[0].text}, read from your emails`}
+                >
+                  {candidate.contact.memory.openLoops[0].who === 'you' ? 'You promised:' : 'They promised:'} {candidate.contact.memory.openLoops[0].text}
+                  <span className="text-gray-400"> &middot; {safeFormatDate(candidate.contact.memory.openLoops[0].date, 'MMM d', '')}</span>
+                </p>
               )}
               {logging === email ? (
                 <div className="flex flex-wrap items-center gap-1.5 mt-auto pt-1">
