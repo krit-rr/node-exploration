@@ -33,7 +33,7 @@ flowchart LR
 ## Core principles
 
 1. **The server store is the source of truth.** `localStorage` is an offline and fast-boot cache, never the system of record. Every cache writer goes through `persistContacts()` so the persisted shape (`{ contacts, lastUpdated, userEmail }`) stays uniform.
-2. **Provider syncs merge, never replace.** A mailbox pull adds to the stored history and the newest touch wins on recency, whichever side recorded it, so logged calls and emails that have left the provider's window survive a sync; the store wins on intent (edits, enrichment, tags, notes, spam flags). Contacts that fall outside the last ~100 sent emails survive forever.
+2. **Provider syncs merge, never replace.** A mailbox pull adds to the stored history and the newest touch wins on recency, whichever side recorded it, so logged calls and emails that have left the provider's window survive a sync; the store wins on intent (edits, enrichment, tags, notes, spam flags). Contacts that fall outside the last ~100 sent emails survive forever. The first sync reads only that newest page; `src/lib/mailSync.ts` and the backfill route then walk older sent mail a hundred messages at a time, three pages per visit to the contacts page, as far as two years back, and `sync_cursors` remembers where to continue. Each page merges like a sync, so the rhythm model, the orbit replay and circles thicken with every visit, and the insights page says how far back the history reaches.
 3. **Graceful degradation at every seam.** Missing table: the store helpers report `available: false` and routes fall back to stateless behavior. Missing column (a migration not yet applied): writes strip the new columns and retry (`NEW_COLUMNS` in `contactsStore`). The app never breaks because the database is a migration behind.
 4. **Expensive work stays off the request path.** AI enrichment and embedding sync run out of band, triggered by the client after data renders. Memory (summary and open loops) is read only for the contacts the user is looking at, the rail's five and an open contact detail, and each contact's history is hashed so an unchanged one is never re-read. Mailbox reads are concurrency-capped. Every OpenAI-backed route is rate-limited per user.
 5. **Secrets stay server-side.** The OAuth access token lives only in the httpOnly JWT (`getToken()`), never on the client-visible session. The Supabase service-role key exists only in server routes. RLS is enabled with zero policies on every table, so browser keys read nothing.
@@ -50,6 +50,7 @@ All tables: RLS on, no policies, service-role access only. Keyed by `owner_email
 | `contact_embeddings` / `interaction_embeddings` | owner + content hash | pgvector embeddings for semantic search; hash-gated so unchanged content is never re-embedded |
 | `waitlist` | email | landing-page signups; the only table with a policy (anon insert) |
 | `digest_subscribers` | `owner_email` | who opted in to the Monday digest, and when it was last sent |
+| `sync_cursors` | `(owner_email, provider)` | how far back the mailbox has been read: the oldest message so far, pages and messages read, done |
 
 Migrations live in `supabase/migrations/` and are applied via the Supabase SQL editor or `supabase db push`. They are idempotent (`if not exists` throughout).
 
@@ -69,6 +70,7 @@ Migrations live in `supabase/migrations/` and are applied via the Supabase SQL e
 | `/api/contacts/draft` | POST | a two-to-four sentence reconnect email for one contact, written by the model or assembled from the same facts | session; 20/min |
 | `/api/contacts/intros` | POST | the introductions worth making, from stored embeddings: alike profiles, never on an email together, both in touch | session; 4/min |
 | `/api/contacts/rehearsal` | POST | record a name card answer; the next due time is computed from the stored entry | session; 120/min |
+| `/api/contacts/backfill` | GET, POST | how far back the mail history reaches; read one more page of older sent mail and merge it | JWT token; POST 6/min |
 | `/api/digest` | GET, PUT | whether the caller is subscribed and sending is configured (`?format=html` renders the digest as it would be sent today); opt in or out | session; 20/min and 30/min |
 | `/api/digest/send` | GET, POST | mail the digest to everyone who opted in; skips people with nobody going cold and people mailed in the last six days (`?force=1` overrides) | `CRON_SECRET` bearer token |
 | `/api/contacts/tags` | POST | add one tag to up to 500 contacts | session |

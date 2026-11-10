@@ -1,14 +1,18 @@
 import { gmail, auth } from '@googleapis/gmail';
 import pLimit from 'p-limit';
-import {
-  aggregateContactsByLatestInteraction,
-  isValidDate,
-  type Contact,
-  type EmailContact,
-  type SentMessage,
-} from './email-contacts';
+import { isValidDate, type EmailContact, type SentMessage } from './email-contacts';
 
 export type { Contact, ContactInteraction } from './email-contacts';
+
+/**
+ * Gmail's search for sent mail, optionally only mail older than `before`
+ * (ms). Gmail's before: operator takes epoch seconds, which is exact to the
+ * second; a date would re-read a whole day and could never pass a day with
+ * more than a page of mail.
+ */
+export function gmailSentQuery(before?: number): string {
+  return before ? `in:sent before:${Math.floor(before / 1000)}` : 'in:sent';
+}
 
 export class GmailClient {
   private oauth2Client: InstanceType<typeof auth.OAuth2>;
@@ -50,11 +54,12 @@ export class GmailClient {
     };
   }
 
-  async getSentEmails(limit: number = 100): Promise<SentMessage[]> {
+  /** The newest `limit` sent messages, or with `before`, the newest ones older than that moment. */
+  async getSentEmails({ limit = 100, before }: { limit?: number; before?: number } = {}): Promise<SentMessage[]> {
     const client = gmail({ version: 'v1', auth: this.oauth2Client });
     const response = await client.users.messages.list({
       userId: 'me',
-      q: 'in:sent',
+      q: gmailSentQuery(before),
       maxResults: limit
     });
 
@@ -91,8 +96,10 @@ export class GmailClient {
             .map(addr => this.parseEmailAddress(addr))
         );
 
+        const internalTime = Number(details.data.internalDate);
         return {
           sentDateTime: dateStr,
+          ...(Number.isFinite(internalTime) && internalTime > 0 ? { internalTime } : {}),
           recipients,
           subject: getHeader('Subject') || undefined,
           // The snippet (first ~100 chars of the body) ships with the
@@ -103,9 +110,5 @@ export class GmailClient {
     );
 
     return messages.filter((msg): msg is SentMessage => msg !== null);
-  }
-
-  async getUniqueContactsByLatestInteraction(): Promise<Contact[]> {
-    return aggregateContactsByLatestInteraction(await this.getSentEmails());
   }
 }

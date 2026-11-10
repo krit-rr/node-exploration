@@ -21,6 +21,9 @@ import { IconName } from '@/components/ui/icons/Icon';
 import React from 'react';
 import DomainStats from '@/components/DomainStats';
 import { useContacts, syncContacts, getContactsStorageKey, persistContacts, type ContactsData } from '@/hooks/useContacts';
+
+/** Pages of older mail read per visit; a page is a hundred sent emails. */
+const BACKFILL_PAGES_PER_VISIT = 3;
 import ReconnectRail from '@/components/ReconnectRail';
 import QuickAddModal from '@/components/QuickAddModal';
 import TriageModal from '@/components/TriageModal';
@@ -463,6 +466,34 @@ function ContactsContent() {
       body: JSON.stringify({ contacts }),
     }).catch(() => {});
   }, [session?.user?.email, contacts, contactsData.lastUpdated]);
+
+  // Older mail, a few pages per visit. The first sync sees only the newest
+  // hundred sent emails, so the rhythm model, the orbit replay and circles
+  // start thin; each visit walks a little further back and merges what it
+  // finds, and the list on screen refreshes once at the end.
+  const backfillRef = useRef<string | null>(null);
+  const hasContacts = contacts.length > 0;
+  useEffect(() => {
+    const email = session?.user?.email;
+    if (!email || !hasContacts || backfillRef.current === email) return;
+    backfillRef.current = email;
+    let cancelled = false;
+    (async () => {
+      let merged = 0;
+      for (let page = 0; page < BACKFILL_PAGES_PER_VISIT && !cancelled; page++) {
+        const response = await fetch('/api/contacts/backfill', { method: 'POST' }).catch(() => null);
+        if (!response?.ok) break;
+        const body = await response.json().catch(() => null);
+        if (!body?.persisted) break;
+        merged += Number(body.messages) || 0;
+        if (body.done) break;
+      }
+      if (merged > 0 && !cancelled) {
+        queryClient.invalidateQueries({ queryKey: ['sentRecipients', email], refetchType: 'active' });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.user?.email, hasContacts, queryClient]);
 
   // Fire out-of-band enrichment for stored contacts missing a company, then
   // refetch so the new company/industry values appear. Guarded so one page

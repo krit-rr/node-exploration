@@ -16,6 +16,8 @@ export interface EmailContact {
 
 export interface SentMessage {
   sentDateTime: string;
+  /** The provider's own clock for the message (ms), the one its paging understands; the Date header can differ. */
+  internalTime?: number;
   recipients: EmailContact[];
   subject?: string;
   snippet?: string;
@@ -40,6 +42,17 @@ export interface Contact {
 
 // Bounded per contact so a frequent correspondent doesn't dominate the payload
 const MAX_INTERACTIONS_PER_CONTACT = 20;
+
+/** The oldest message in a page by the provider's clock, or null for an empty page. */
+export function oldestMessageTime(messages: SentMessage[]): number | null {
+  let oldest: number | null = null;
+  for (const message of messages) {
+    const t = message.internalTime ?? new Date(message.sentDateTime).getTime();
+    if (Number.isNaN(t)) continue;
+    if (oldest === null || t < oldest) oldest = t;
+  }
+  return oldest;
+}
 
 export function isValidDate(dateStr: string): boolean {
   const date = new Date(dateStr);
