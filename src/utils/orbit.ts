@@ -1,5 +1,5 @@
 import type { Contact } from '@/types';
-import { assessCadence, isGoingCold, isPriorityContact, isSnoozed, type CadenceAssessment } from '@/utils/reconnect';
+import { assessCadence, isGoingCold, isPriorityContact, isSnoozed, PRIORITY_TAG, type CadenceAssessment } from '@/utils/reconnect';
 
 /**
  * The orbit map: every contact as a point around the user, distance being
@@ -22,12 +22,17 @@ export const LAYER_NAMES = ['closest 5', '15', '50', '150', 'beyond 150'] as con
 export const RING_EDGE = [0.22, 0.45, 0.7, 0.95, 1.08] as const;
 const RING_INNER = 0.06;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const RECENCY_HALF_LIFE_DAYS = 90;
-const CONSUMER_DOMAINS = new Set([
+export const CONSUMER_DOMAINS = new Set([
   'gmail.com', 'googlemail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'live.com',
   'icloud.com', 'me.com', 'aol.com', 'proton.me', 'protonmail.com',
 ]);
+
+/** The domain of a work address, or null for a consumer mailbox. */
+export function workDomain(email: string): string | null {
+  const domain = email.split('@')[1]?.toLowerCase() ?? '';
+  return domain && !CONSUMER_DOMAINS.has(domain) ? domain : null;
+}
 
 export interface OrbitPoint {
   contact: Contact;
@@ -54,7 +59,8 @@ export interface OrbitLayout {
   total: number;
 }
 
-function hash(text: string): number {
+/** A small stable hash for angles and keys (djb2). */
+export function hash(text: string): number {
   let h = 5381;
   for (const ch of text) h = ((h << 5) + h + ch.charCodeAt(0)) | 0;
   return h >>> 0;
@@ -64,8 +70,8 @@ function hash(text: string): number {
 export function clusterKey(contact: Contact): string {
   const company = contact.company?.trim().toLowerCase();
   if (company) return `company:${company}`;
-  const domain = contact.email.split('@')[1]?.toLowerCase() ?? '';
-  if (domain && !CONSUMER_DOMAINS.has(domain)) return `domain:${domain}`;
+  const domain = workDomain(contact.email);
+  if (domain) return `domain:${domain}`;
   return `person:${contact.email.toLowerCase()}`;
 }
 
@@ -74,19 +80,22 @@ export function clusterKey(contact: Contact): string {
  * full marks) and depth of history, with a nudge for people the user
  * marked out. A heuristic, deliberately simple; the model replaces it.
  */
-export function closenessScore(contact: Contact, assessment: CadenceAssessment, priority: boolean, now: number): number {
-  const recency = Math.pow(0.5, Math.max(0, assessment.daysSince) / RECENCY_HALF_LIFE_DAYS);
-  const dates = contact.interactions?.length
-    ? contact.interactions.map(i => i.date)
-    : contact.sentDates ?? [];
-  let lastYear = 0;
-  for (const date of dates) {
-    const t = new Date(date).getTime();
-    if (!isNaN(t) && now - t <= 365 * DAY_MS) lastYear++;
-  }
-  const frequency = Math.min(1, lastYear / 12);
-  const depth = Math.min(1, Math.log(1 + dates.length) / Math.log(21));
+export function closenessScore(assessment: CadenceAssessment, priority: boolean): number {
+  // Someone Node knows about but has never touched has no recency, whatever their row's age.
+  const recency = assessment.neverTouched ? 0 : Math.pow(0.5, Math.max(0, assessment.daysSince) / RECENCY_HALF_LIFE_DAYS);
+  const frequency = Math.min(1, assessment.touchesLastYear / 12);
+  const depth = Math.min(1, Math.log(1 + assessment.touchCount) / Math.log(21));
   return Math.min(1, 0.5 * recency + 0.3 * frequency + 0.2 * depth + (priority ? 0.1 : 0));
+}
+
+/**
+ * Priority as the rank sees it: the key-contact tag and group membership
+ * only. Orbit intent is deliberately left out, so dragging someone inward
+ * never moves the dot that shows where activity puts them.
+ */
+export function rankPriority(contact: Contact, priorityEmails?: Set<string>): boolean {
+  if ((contact.tags ?? []).some(t => t.toLowerCase() === PRIORITY_TAG)) return true;
+  return Boolean(priorityEmails?.has(contact.email.toLowerCase()));
 }
 
 /** The stored intent, when it is a valid ring. */
@@ -129,7 +138,7 @@ export function computeOrbit(
     const assessment = assessments.get(email);
     if (!assessment) continue;
     const priority = isPriorityContact(contact, priorityEmails);
-    scored.push({ contact, email, assessment, priority, closeness: closenessScore(contact, assessment, priority, now) });
+    scored.push({ contact, email, assessment, priority, closeness: closenessScore(assessment, rankPriority(contact, priorityEmails)) });
   }
   scored.sort((a, b) => b.closeness - a.closeness || a.email.localeCompare(b.email));
 

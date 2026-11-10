@@ -77,10 +77,10 @@ export default function OrbitMap({ layout, selected, onSelect, onIntent }: Props
       className="w-full h-auto max-h-[80vh] select-none touch-none"
       role="img"
       aria-label="Your network as orbits around you; distance is closeness"
+      onPointerDown={event => { if (event.target === svgRef.current) onSelect(null); }}
       onPointerMove={move}
       onPointerUp={end}
       onPointerCancel={() => setDrag(null)}
-      onClick={event => { if (event.target === svgRef.current) onSelect(null); }}
     >
       {RING_EDGE.slice(0, 4).map((edge, i) => {
         const r = edge * SCALE;
