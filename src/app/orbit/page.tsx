@@ -7,7 +7,10 @@ import { useSession } from 'next-auth/react';
 import toast from 'react-hot-toast';
 import OrbitMap from '@/components/OrbitMap';
 import { persistContacts, useContacts, type ContactsData } from '@/hooks/useContacts';
-import { computeOrbit, LAYER_NAMES } from '@/utils/orbit';
+import { computeOrbit, contactsAsOf, LAYER_NAMES } from '@/utils/orbit';
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_WEEKS_BACK = 52;
 
 type Intent = 1 | 2 | 3 | 4 | null;
 
@@ -51,7 +54,14 @@ export default function OrbitPage() {
   }, []);
   const priorityEmails = useMemo(() => new Set(groupMembers.map(m => m.toLowerCase())), [groupMembers]);
 
-  const layout = useMemo(() => computeOrbit(contacts, { priorityEmails }), [contacts, priorityEmails]);
+  // Replay: scrub up to a year back and the map shows where everyone sat then.
+  const [weeksAgo, setWeeksAgo] = useState(0);
+  const layout = useMemo(() => {
+    if (weeksAgo === 0) return computeOrbit(contacts, { priorityEmails });
+    const at = Date.now() - weeksAgo * WEEK_MS;
+    return computeOrbit(contactsAsOf(contacts, at), { priorityEmails, now: at });
+  }, [contacts, priorityEmails, weeksAgo]);
+  const replaying = weeksAgo > 0;
   const [selected, setSelected] = useState<string | null>(null);
   const point = layout.points.find(p => p.email === selected) ?? null;
   const goingCold = layout.points.filter(p => p.goingCold).length;
@@ -106,7 +116,28 @@ export default function OrbitPage() {
         {layout.total > 0 && (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
             <div className="bg-white rounded-xl border border-gray-200 p-3">
-              <OrbitMap layout={layout} selected={selected} onSelect={setSelected} onIntent={setIntent} />
+              <OrbitMap layout={layout} selected={selected} onSelect={setSelected} onIntent={setIntent} readOnly={replaying} />
+              <div className="flex items-center gap-3 px-2 pt-3">
+                <label htmlFor="orbit-weeks" className="text-xs text-gray-500 flex-none w-24">
+                  {replaying ? `${weeksAgo} week${weeksAgo === 1 ? '' : 's'} ago` : 'Now'}
+                </label>
+                <input
+                  id="orbit-weeks"
+                  type="range"
+                  min={0}
+                  max={MAX_WEEKS_BACK}
+                  value={weeksAgo}
+                  onChange={event => setWeeksAgo(Number(event.target.value))}
+                  className="flex-1 accent-[#1E1E3F]"
+                  aria-label="Weeks ago"
+                  style={{ direction: 'rtl' }}
+                />
+              </div>
+              <p className="px-2 pt-1 text-[11px] text-gray-400">
+                {replaying
+                  ? 'Replaying where everyone sat then. Drag works in the present.'
+                  : 'Slide left to replay the last year of drift.'}
+              </p>
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-2 pt-2 text-xs text-gray-500">
                 <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#D97706]" /> going cold</span>
                 <span className="inline-flex items-center gap-1.5"><span className="inline-block w-2.5 h-2.5 rounded-full bg-[#4B4BA6]/70 ring-1 ring-[#1E1E3F]" /> priority</span>
@@ -141,8 +172,9 @@ export default function OrbitPage() {
                         return (
                           <button
                             key={String(option.layer)}
+                            disabled={replaying}
                             onClick={() => setIntent(point.email, option.layer)}
-                            className={`text-xs px-2 py-1 rounded-md border transition-colors ${
+                            className={`text-xs px-2 py-1 rounded-md border transition-colors disabled:opacity-50 ${
                               current
                                 ? 'bg-[#1E1E3F] text-white border-[#1E1E3F]'
                                 : 'border-gray-200 text-[#1E1E3F] hover:bg-gray-50'

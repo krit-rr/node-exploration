@@ -118,6 +118,42 @@ export function ringDistance(layer: 1 | 2 | 3 | 4): number {
   return (inner + RING_EDGE[layer - 1]) / 2;
 }
 
+/**
+ * The contacts as they stood at `at`: only the touches up to then, the
+ * last touch recomputed from them, and nobody Node had not met yet. With
+ * `computeOrbit(contactsAsOf(contacts, at), { now: at })` the map replays
+ * where everyone sat at that moment, so a year of drift can be scrubbed.
+ */
+export function contactsAsOf(contacts: Contact[], at: number): Contact[] {
+  const projected: Contact[] = [];
+  for (const contact of contacts) {
+    const interactions = (contact.interactions ?? []).filter(i => {
+      const t = new Date(i.date).getTime();
+      return !isNaN(t) && t <= at;
+    });
+    const sentDates = (contact.sentDates ?? []).filter(d => {
+      const t = new Date(d).getTime();
+      return !isNaN(t) && t <= at;
+    });
+    const times = [...interactions.map(i => new Date(i.date).getTime()), ...sentDates.map(d => new Date(d).getTime())];
+    if (times.length === 0) {
+      // No touch yet at that time: present only if Node already knew them.
+      const created = contact.createdAt ? new Date(contact.createdAt).getTime() : NaN;
+      if (isNaN(created) || created > at) continue;
+      projected.push({ ...contact, interactions: [], sentDates: [], lastContacted: '', snoozedUntil: undefined });
+      continue;
+    }
+    projected.push({
+      ...contact,
+      interactions,
+      sentDates,
+      lastContacted: new Date(Math.max(...times)).toISOString(),
+      snoozedUntil: undefined,
+    });
+  }
+  return projected;
+}
+
 export function computeOrbit(
   contacts: Contact[],
   { priorityEmails, now = Date.now() }: { priorityEmails?: Set<string>; now?: number } = {}

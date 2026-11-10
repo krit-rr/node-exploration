@@ -18,6 +18,8 @@ interface Props {
   onSelect: (email: string | null) => void;
   /** A dot dropped on a ring: where the user wants this person. Past the last ring clears it. */
   onIntent: (email: string, layer: 1 | 2 | 3 | 4 | null) => void;
+  /** Replaying the past: dots can be selected but not moved. */
+  readOnly?: boolean;
 }
 
 type Drag = { email: string; startX: number; startY: number; x: number; y: number; moved: boolean };
@@ -40,7 +42,7 @@ function distanceFromCenter(x: number, y: number): number {
  * inward or outward says where the person should be, and that intent is
  * drawn as a hollow marker joined to the dot by a dashed trail.
  */
-export default function OrbitMap({ layout, selected, onSelect, onIntent }: Props) {
+export default function OrbitMap({ layout, selected, onSelect, onIntent, readOnly = false }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -57,7 +59,7 @@ export default function OrbitMap({ layout, selected, onSelect, onIntent }: Props
   const move = (event: ReactPointerEvent<SVGSVGElement>) => {
     if (!drag || !svgRef.current) return;
     const p = toSvg(svgRef.current, event.clientX, event.clientY);
-    const moved = drag.moved || Math.hypot(p.x - drag.startX, p.y - drag.startY) > 4;
+    const moved = !readOnly && (drag.moved || Math.hypot(p.x - drag.startX, p.y - drag.startY) > 4);
     setDrag({ ...drag, x: p.x, y: p.y, moved });
   };
 
@@ -125,7 +127,8 @@ export default function OrbitMap({ layout, selected, onSelect, onIntent }: Props
             cx={pos.x} cy={pos.y} r={r}
             fill={p.goingCold ? COLD : DOT} fillOpacity={opacity}
             stroke={selected === p.email || p.priority ? INK : 'none'} strokeWidth={selected === p.email ? 2 : 1.5}
-            className="cursor-grab active:cursor-grabbing"
+            className={readOnly ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'}
+            style={dragging ? undefined : { transition: 'cx 350ms ease, cy 350ms ease' }}
             onPointerDown={startDrag(p)}
             onMouseEnter={() => setHovered(p.email)}
             onMouseLeave={() => setHovered(null)}
