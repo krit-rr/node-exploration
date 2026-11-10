@@ -7,6 +7,7 @@ import { getSupabaseAdmin } from '@/lib/supabaseAdmin';
 import { rateLimit } from '@/lib/rateLimit';
 import { AUTOMATED_ADDRESS } from '@/utils/reconnect';
 import { MAX_SILENCE_DAYS, suggestIntros, type SimilarPair } from '@/utils/intros';
+import { getTieModel } from '@/lib/tieStore';
 
 /** The most recently contacted people seed the search; each brings its nearest neighbours. */
 const MAX_SEEDS = 30;
@@ -100,7 +101,8 @@ export async function POST() {
       }
     }
 
-    const intros = suggestIntros(stored.contacts, pairs, { limit: 10, now });
+    const model = (await getTieModel(owner).catch(() => null))?.model;
+    const intros = suggestIntros(stored.contacts, pairs, { limit: 10, now, model });
     const response = NextResponse.json({ intros });
     response.headers.set('Cache-Control', 'private, no-store');
     return response;

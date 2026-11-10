@@ -1,6 +1,7 @@
 import type { Contact } from '@/types';
 import { assessCadence, cadenceStatus, type CadenceAssessment } from '@/utils/reconnect';
 import { computeOrbit, type OrbitLayer } from '@/utils/orbit';
+import type { TieModel } from '@/utils/tieStrength';
 import { lastSubject } from '@/utils/interactions';
 import { cleanLine } from '@/utils/draft';
 
@@ -83,7 +84,7 @@ export function personFacts(contact: Contact, assessment: CadenceAssessment, hit
 export function rankPeople(
   hits: AskHit[],
   contacts: Contact[],
-  { priorityEmails, now = Date.now(), limit = MAX_PEOPLE }: { priorityEmails?: Set<string>; now?: number; limit?: number } = {}
+  { priorityEmails, now = Date.now(), limit = MAX_PEOPLE, model }: { priorityEmails?: Set<string>; now?: number; limit?: number; model?: TieModel } = {}
 ): AskPerson[] {
   const byEmail = new Map(contacts.map(c => [c.email.toLowerCase(), c]));
   const best = new Map<string, AskHit>();
@@ -94,7 +95,7 @@ export function rankPeople(
   }
   if (best.size === 0) return [];
   const assessments = assessCadence(contacts, undefined, now);
-  const layers = new Map(computeOrbit(contacts, { priorityEmails, now }).points.map(p => [p.email, p.layer]));
+  const layers = new Map(computeOrbit(contacts, { priorityEmails, now, model }).points.map(p => [p.email, p.layer]));
 
   const people: AskPerson[] = [];
   for (const [email, hit] of best) {

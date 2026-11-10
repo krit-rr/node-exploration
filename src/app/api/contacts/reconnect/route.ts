@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { setSnooze } from '@/lib/contactsStore';
+import { recordLabels } from '@/lib/tieStore';
 
 const MAX_SNOOZE_DAYS = 365;
 
@@ -28,6 +29,8 @@ export async function POST(request: Request) {
 
     try {
       const result = await setSnooze(session.user.email.toLowerCase(), email, until);
+      // A snooze says this one can wait: a label the model learns from.
+      if (result.available && days > 0) void recordLabels(session.user.email.toLowerCase(), [email], -1, 'snooze');
       return NextResponse.json({ snoozedUntil: until, persisted: result.available });
     } catch (error) {
       console.error('Snooze persistence failed:', error);

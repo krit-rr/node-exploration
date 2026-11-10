@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { bulkAddTag } from '@/lib/contactsStore';
+import { recordLabels } from '@/lib/tieStore';
+import { PRIORITY_TAG } from '@/utils/reconnect';
 
 const MAX_EMAILS = 500;
 
@@ -24,6 +26,7 @@ export async function POST(request: Request) {
 
     try {
       const result = await bulkAddTag(session.user.email.toLowerCase(), emails, tag.trim());
+      if (result.available && tag.trim().toLowerCase() === PRIORITY_TAG) void recordLabels(session.user.email.toLowerCase(), emails, 1, 'tag');
       return NextResponse.json({ persisted: result.available, updated: result.updated });
     } catch (error) {
       console.error('Bulk tag persistence failed:', error);

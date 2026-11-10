@@ -1,6 +1,7 @@
 import type { Contact } from '@/types';
 import { AUTOMATED_ADDRESS, assessCadence } from '@/utils/reconnect';
-import { closenessScore, hash, rankPriority, workDomain } from '@/utils/orbit';
+import { hash, learnedCloseness, rankPriority, workDomain } from '@/utils/orbit';
+import type { TieModel } from '@/utils/tieStrength';
 
 /**
  * Intros worth making. The most valuable thing a networker does for other
@@ -119,7 +120,7 @@ export function introReason(alike: string, withinDays: number, threadsChecked: b
 export function suggestIntros(
   contacts: Contact[],
   pairs: SimilarPair[],
-  { limit = 5, now = Date.now(), priorityEmails }: { limit?: number; now?: number; priorityEmails?: Set<string> } = {}
+  { limit = 5, now = Date.now(), priorityEmails, model }: { limit?: number; now?: number; priorityEmails?: Set<string>; model?: TieModel } = {}
 ): IntroSuggestion[] {
   const byEmail = new Map<string, Contact>();
   for (const contact of contacts) {
@@ -149,7 +150,8 @@ export function suggestIntros(
     if (ta.daysSince > MAX_SILENCE_DAYS || tb.daysSince > MAX_SILENCE_DAYS) continue;
     if (alreadyConnected(a, b)) continue;
     const closeness = Math.sqrt(
-      closenessScore(ta, rankPriority(a, priorityEmails)) * closenessScore(tb, rankPriority(b, priorityEmails))
+      learnedCloseness(a, ta, rankPriority(a, priorityEmails), { model, now, priorityEmails }) *
+        learnedCloseness(b, tb, rankPriority(b, priorityEmails), { model, now, priorityEmails })
     );
     const person = (c: Contact, days: number): IntroPerson => ({
       email: c.email.toLowerCase(),

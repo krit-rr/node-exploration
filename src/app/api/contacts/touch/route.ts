@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { logTouch } from '@/lib/contactsStore';
+import { recordLabels } from '@/lib/tieStore';
 
 const CHANNELS = ['email', 'call', 'meeting', 'other'] as const;
 type Channel = (typeof CHANNELS)[number];
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
 
     try {
       const result = await logTouch(session.user.email.toLowerCase(), email, channel as Channel, note);
+      if (result.available) void recordLabels(session.user.email.toLowerCase(), [email], 1, 'touch');
       if (result.available && result.contact) {
         return NextResponse.json({ persisted: true, contact: result.contact });
       }
