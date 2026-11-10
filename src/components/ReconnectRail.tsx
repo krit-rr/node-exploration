@@ -3,7 +3,8 @@
 import { useMemo, useState, useEffect, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { Contact, type ContactMemory } from '@/types';
-import { composeLabel, composeUrl } from '@/utils/compose';
+import { composeLabel, composeOpensInBrowser, composeUrl } from '@/utils/compose';
+import { draftFromTemplate } from '@/utils/draft';
 import { cadenceStatus, computeReconnectQueue, type ReconnectCandidate } from '@/utils/reconnect';
 import { safeFormatDate } from '@/utils/dates';
 import { memoryIsStale } from '@/utils/interactions';
@@ -27,7 +28,16 @@ interface Props {
   onMemoryLoaded?: (memories: Record<string, ContactMemory>) => void;
 }
 
-type Draft = { email: string; subject: string; body: string; source: 'model' | 'template' };
+type Draft = { email: string; subject: string; body: string; note: string };
+
+/** The footer under a draft says where it came from, and only what is true. */
+const DRAFT_NOTE = {
+  model: 'Written from your notes and emails. Edit before sending.',
+  'no-model': 'Assembled from your notes, no model configured. Edit before sending.',
+  'model-failed': 'Assembled from your notes. The model did not answer this time. Edit before sending.',
+  local: 'Assembled from your notes. Edit before sending.',
+  limited: 'Too many drafts in the last minute, so this one is assembled from your notes. Edit before sending.',
+} as const;
 
 /** Why this card is here, against the pair's own rhythm or the user's. */
 function rhythmTitle(candidate: ReconnectCandidate): string {
@@ -90,6 +100,19 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
 
   // The hardest step is the first sentence: ask for a draft, let the user
   // edit it on the card, then open it in their own mail client.
+  // The same template the server uses, from what the card already knows,
+  // for when the server cannot answer: a card always ends in an email.
+  const localDraft = (candidate: ReconnectCandidate, note: string): Draft => {
+    const draft = draftFromTemplate({
+      contact: candidate.contact,
+      userName: session?.user?.name ?? '',
+      daysSince: candidate.daysSince,
+      neverTouched: candidate.neverTouched,
+      typicalDays: candidate.cadence.source === 'pair' ? candidate.cadence.typicalDays : undefined,
+    });
+    return { email: candidate.contact.email, subject: draft.subject, body: draft.body, note };
+  };
+
   const requestDraft = async (candidate: ReconnectCandidate) => {
     const email = candidate.contact.email;
     if (drafting) return;
@@ -101,13 +124,19 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
+      if (response.status === 429) {
+        setDraft(localDraft(candidate, DRAFT_NOTE.limited));
+        return;
+      }
       if (!response.ok) throw new Error(String(response.status));
       const body = await response.json();
-      setDraft({ email, subject: String(body.subject ?? ''), body: String(body.body ?? ''), source: body.source === 'model' ? 'model' : 'template' });
+      if (typeof body?.body !== 'string' || !body.body) throw new Error('Empty draft');
+      const note = body.source === 'model'
+        ? DRAFT_NOTE.model
+        : body.reason === 'model-failed' ? DRAFT_NOTE['model-failed'] : DRAFT_NOTE['no-model'];
+      setDraft({ email, subject: String(body.subject ?? ''), body: body.body, note });
     } catch {
-      setDraft({ email, subject: 'Catching up', body: `Hi ${candidate.contact.name.split(' ')[0]},
-
-`, source: 'template' });
+      setDraft(localDraft(candidate, DRAFT_NOTE.local));
     } finally {
       setDrafting(null);
     }
@@ -205,15 +234,11 @@ export default function ReconnectRail({ contacts, onSnoozed, onTouchLogged, prio
                     rows={6}
                     className="text-xs px-2 py-1 rounded-md border border-gray-200 resize-y focus:outline-none focus:ring-2 focus:ring-[#1E1E3F]/20"
                   />
-                  <p className="text-[11px] text-gray-400">
-                    {draft.source === 'model'
-                      ? 'Written from your notes and emails. Edit before sending.'
-                      : 'Assembled from your notes, no model configured. Edit before sending.'}
-                  </p>
+                  <p className="text-[11px] text-gray-400">{draft.note}</p>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <a
                       href={composeUrl(provider, email, draft.subject, draft.body)}
-                      target="_blank"
+                      target={composeOpensInBrowser(provider) ? '_blank' : undefined}
                       rel="noreferrer"
                       className="text-xs font-medium px-2.5 py-1 rounded-md bg-[#1E1E3F] text-white hover:bg-[#2D2D5F] transition-colors"
                     >

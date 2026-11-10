@@ -9,6 +9,7 @@ import {
   touchDays,
   type CadenceEstimate,
 } from '@/utils/cadence';
+import { lastSubject } from '@/utils/interactions';
 
 export { AUTOMATED_ADDRESS } from '@/utils/addresses';
 
@@ -165,15 +166,10 @@ export function computeReconnectQueue(
     if (isSnoozed(contact, now)) continue;
     if (!isGoingCold(assessment)) continue;
 
-    const lastWithSubject = [...(contact.interactions ?? [])]
-      .filter(i => i.type !== 'received')
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .find(i => i.subject?.trim());
-
     candidates.push({
       ...assessment,
       contact,
-      lastSubject: lastWithSubject?.subject?.trim(),
+      lastSubject: lastSubject(contact),
       priority: isPriorityContact(contact, priorityEmails),
     });
   }

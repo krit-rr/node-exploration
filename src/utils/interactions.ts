@@ -9,6 +9,19 @@ export function textInteractions(contact: Contact): Interaction[] {
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 }
 
+/** Subjects of mail the user sent, newest first, at most n. A received subject is not something the user wrote. */
+export function sentSubjects(contact: Contact, n: number): Interaction[] {
+  return [...(contact.interactions ?? [])]
+    .filter(i => i.type !== 'received' && i.subject?.trim())
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, n);
+}
+
+/** The newest subject line the user sent, trimmed, if any. */
+export function lastSubject(contact: Contact): string | undefined {
+  return sentSubjects(contact, 1)[0]?.subject?.trim();
+}
+
 /**
  * True when there is text the stored memory has not read: nothing stored
  * yet, or a message with text newer than the last read. Compared as dates,
