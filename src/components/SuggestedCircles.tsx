@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Contact } from '@/types';
-import { dismissCircle, readDismissedCircles, suggestCircles } from '@/utils/circles';
+import { circleUpdates, dismissCircle, readDismissedCircles, suggestCircles } from '@/utils/circles';
 import type { SemanticCircle } from '@/utils/semanticCircles';
 
 /** Sixty vector lookups and a few model calls per request: ask once per visit, not once per mount. */
@@ -32,6 +32,8 @@ interface Props {
   userEmail?: string | null;
   /** Keep a circle: the page creates the group and switches to it. */
   onCreateGroup: (name: string, members: Set<string>) => void;
+  /** A kept circle grew: add the newcomers to the group. */
+  onAddToGroup?: (groupId: string, members: string[]) => void;
 }
 
 function ago(iso: string): string {
@@ -47,7 +49,11 @@ function ago(iso: string): string {
  * The groups the mail already implies: people who keep landing on the same
  * emails. One tap keeps a circle as a real group; dismissing it is final.
  */
-export default function SuggestedCircles({ contacts, groups, userEmail, onCreateGroup }: Props) {
+export default function SuggestedCircles({ contacts, groups, userEmail, onCreateGroup, onAddToGroup }: Props) {
+  // Groups that grew: newcomers on the group's emails this month, offered once per visit.
+  const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const updates = useMemo(() => circleUpdates(contacts, groups), [contacts, groups]);
+  const visibleUpdates = updates.filter(u => !skipped.has(`${u.groupId}:${u.newcomers.join(',')}`));
   // Read with the user known, in the same render as the cards, so a dismissed circle never flashes.
   const [dismissedVersion, setDismissedVersion] = useState(0);
   const dismissed = useMemo(
@@ -70,7 +76,9 @@ export default function SuggestedCircles({ contacts, groups, userEmail, onCreate
     retry: false,
   });
   const cards = useMemo<Card[]>(() => {
-    const fromMail: Card[] = suggestions.map(circle => ({
+    // A circle that is a kept group plus its newcomers is offered as an update, not as a new circle.
+    const grown = visibleUpdates.map(u => [...u.members, ...u.newcomers]);
+    const fromMail: Card[] = suggestions.filter(circle => !grown.some(g => jaccard(g, circle.members) >= 0.6)).map(circle => ({
       key: circle.key,
       name: circle.name,
       members: circle.members,
@@ -88,13 +96,13 @@ export default function SuggestedCircles({ contacts, groups, userEmail, onCreate
         kind: 'alike',
       }));
     return [...fromMail, ...fromProfiles].slice(0, 8);
-  }, [suggestions, alike, dismissed]);
+  }, [suggestions, alike, dismissed, visibleUpdates]);
   const namesByEmail = useMemo(
     () => new Map(contacts.map(c => [c.email.toLowerCase(), c.name || c.email])),
     [contacts]
   );
 
-  if (cards.length === 0) return null;
+  if (cards.length === 0 && visibleUpdates.length === 0) return null;
 
   const dismiss = (members: string[]) => {
     if (userEmail) dismissCircle(userEmail, members);
@@ -103,6 +111,37 @@ export default function SuggestedCircles({ contacts, groups, userEmail, onCreate
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+      {visibleUpdates.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {visibleUpdates.slice(0, 3).map(update => {
+            const key = `${update.groupId}:${update.newcomers.join(',')}`;
+            const names = update.newcomers.map(m => namesByEmail.get(m) ?? m);
+            return (
+              <div key={key} className="flex flex-wrap items-center gap-2 rounded-lg bg-[#F4F4FF] px-3 py-2 text-sm text-[#1E1E3F]">
+                <span className="flex-1 min-w-0">
+                  {names.length === 1 ? `${names[0]} has` : `${names.length} people have`} been on <span className="font-medium">{update.groupName}</span>&rsquo;s emails this month but {names.length === 1 ? 'is' : 'are'} not in the group{names.length > 1 ? `: ${names.join(', ')}` : ''}.
+                </span>
+                {onAddToGroup && (
+                  <button
+                    onClick={() => { onAddToGroup(update.groupId, update.newcomers); setSkipped(prev => new Set(prev).add(key)); }}
+                    className="text-xs font-medium px-2.5 py-1 rounded-md bg-[#1E1E3F] text-white hover:bg-[#2D2D5F] transition-colors"
+                  >
+                    Add {names.length === 1 ? 'them' : 'all'}
+                  </button>
+                )}
+                <button
+                  onClick={() => setSkipped(prev => new Set(prev).add(key))}
+                  className="text-xs px-2 py-1 rounded-md text-gray-500 hover:bg-white transition-colors"
+                >
+                  Not now
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {cards.length === 0 ? null : (
+      <>
       <div className="mb-3">
         <h2 className="text-base font-semibold text-[#1E1E3F]">Circles you already have</h2>
         <p className="text-sm text-gray-500">People you keep emailing together, and people whose profiles are alike. Keep one as a group, or dismiss it.</p>
@@ -133,6 +172,8 @@ export default function SuggestedCircles({ contacts, groups, userEmail, onCreate
           </div>
         ))}
       </div>
+      </>
+      )}
     </div>
   );
 }

@@ -1915,6 +1915,13 @@ function ContactsContent() {
             groups={groups}
             userEmail={userEmail}
             onCreateGroup={handleCreateGroup}
+            onAddToGroup={(groupId, members) => {
+              const updatedGroups = groups.map(g =>
+                g.id === groupId ? { ...g, members: Array.from(new Set([...g.members, ...members])) } : g
+              );
+              setGroups(updatedGroups);
+              toast.success(`${members.length} ${members.length === 1 ? 'person' : 'people'} added to ${groups.find(g => g.id === groupId)?.name ?? 'the group'}`);
+            }}
           />
 
           {/* Enhanced Table Section */}
